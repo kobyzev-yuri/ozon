@@ -18,10 +18,13 @@ perception:
   tracker: config/bytetrack.yaml
   use_color_fallback: true     # демо без весов
 
+scan:
+  barcode_enabled: true        # pyzbar на SCAN LINE (pip install pyzbar)
+
 arbitrator:
-  enabled: false               # включить при GEMINI_API_KEY / OPENAI_API_KEY
-  provider: gemini             # gemini | openai
-  model: gemini-2.0-flash
+  enabled: false               # true + ключ в config.env
+  provider: gemini             # gemini (ProxyAPI vision) | openai
+  model: gemini-3.5-flash      # или GEMINI_MODEL из config.env
   trigger:
     min_confidence: 0.55       # ниже → запрос к LLM
     class_vote_disagreement: true

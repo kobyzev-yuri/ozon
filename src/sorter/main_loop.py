@@ -7,6 +7,7 @@ import cv2
 import yaml
 
 from sorter.arbitrage.llm_arbitrator import LLMArbitrator
+from sorter.config import gemini_model, load_env_files
 from sorter.core.events import Event, EventBus, EventLogger
 from sorter.field.frame_source import FrameSource
 from sorter.field.induction import InductionFilter
@@ -16,11 +17,13 @@ from sorter.perception.scan_station import ScanStation
 from sorter.planning.command_queue import CommandQueue
 from sorter.planning.position_tracker import PositionTracker
 from sorter.planning.timing_controller import TimingController
+from sorter.core.types import TrackState
 from sorter.wcs.actuator import SimActuator, draw_overlay
 from sorter.wms.routing_table import RoutingTable
 
 
 def load_config(path: str | Path = "config/pipeline.yaml") -> dict:
+    load_env_files()
     with Path(path).open(encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
@@ -34,7 +37,7 @@ def build_pipeline(cfg: dict, source: FrameSource) -> tuple:
         min_track_length=cfg["induction"]["min_track_length"],
         min_bbox_gap_px=cfg["induction"]["min_bbox_gap_px"],
     )
-    tracker = PositionTracker(induction)
+    tracker = PositionTracker(induction, event_bus=bus)
     queue = CommandQueue()
     timing = TimingController(
         actuation_line_ratio=cfg["lines"]["actuation_line_ratio"],
@@ -50,17 +53,19 @@ def build_pipeline(cfg: dict, source: FrameSource) -> tuple:
         arbitrator = LLMArbitrator(
             min_confidence=arb_cfg["trigger"]["min_confidence"],
             provider=arb_cfg.get("provider", "gemini"),
-            model=arb_cfg.get("model", "gemini-2.0-flash"),
+            model=arb_cfg.get("model") or gemini_model(),
             log_path=cfg["logging"]["arbitrator_path"],
             max_calls_per_minute=arb_cfg.get("max_calls_per_minute", 10),
             barcode_cv_mismatch=arb_cfg["trigger"].get("barcode_cv_mismatch", True),
         )
 
+    scan_cfg = cfg.get("scan", {})
     scan = ScanStation(
         scan_line_ratio=cfg["lines"]["scan_line_ratio"],
         routing=routing,
         event_bus=bus,
         arbitrator=arbitrator,
+        barcode_enabled=scan_cfg.get("barcode_enabled", True),
     )
     detector = YoloDetector(
         model_path=cfg["perception"]["model_path"],
@@ -103,6 +108,7 @@ def run_loop(
             for snap, route in scan.process(frame, snapshots, frame_idx):
                 cmd = timing.schedule_divert(snap, route, frame_idx, frame.shape[1])
                 if cmd:
+                    snap.state = TrackState.SCHEDULED
                     bus.publish(
                         Event(
                             event="scheduled",

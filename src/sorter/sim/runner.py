@@ -7,6 +7,7 @@ import cv2
 import yaml
 
 from sorter.arbitrage.llm_arbitrator import LLMArbitrator
+from sorter.config import gemini_model, load_env_files
 from sorter.core.events import Event, EventBus, EventLogger
 from sorter.field.induction import InductionFilter
 from sorter.main_loop import load_config
@@ -15,7 +16,7 @@ from sorter.perception.scan_station import ScanStation
 from sorter.planning.command_queue import CommandQueue
 from sorter.planning.position_tracker import PositionTracker
 from sorter.planning.timing_controller import TimingController
-from sorter.core.types import Detection
+from sorter.core.types import Detection, TrackState
 from sorter.sim.body_matcher import match_detections_to_bodies
 from sorter.sim.metrics import SortMetrics
 from sorter.sim.pybullet_env import PyBulletConveyor, load_pybullet_config
@@ -67,6 +68,7 @@ def run_pybullet_demo(
     show: bool = True,
     max_physics_steps: int | None = None,
 ) -> SortMetrics:
+    load_env_files()
     pipeline_cfg = pipeline_cfg or load_config()
     pb_cfg = pb_cfg or load_pybullet_config()
 
@@ -93,7 +95,7 @@ def run_pybullet_demo(
         min_track_length=max(1, pipeline_cfg["induction"]["min_track_length"] // 2),
         min_bbox_gap_px=pipeline_cfg["induction"]["min_bbox_gap_px"],
     )
-    tracker = PositionTracker(induction)
+    tracker = PositionTracker(induction, event_bus=bus)
     queue = CommandQueue()
     timing = _world_timing_controller(
         routing,
@@ -107,19 +109,24 @@ def run_pybullet_demo(
     arbitrator = None
     arb_cfg = pipeline_cfg.get("arbitrator", {})
     if arb_cfg.get("enabled"):
+        from sorter.config import gemini_model
+
         arbitrator = LLMArbitrator(
             min_confidence=arb_cfg["trigger"]["min_confidence"],
             provider=arb_cfg.get("provider", "gemini"),
-            model=arb_cfg.get("model", "gemini-2.0-flash"),
+            model=arb_cfg.get("model") or gemini_model(),
             log_path=pipeline_cfg["logging"]["arbitrator_path"],
             max_calls_per_minute=arb_cfg.get("max_calls_per_minute", 10),
+            barcode_cv_mismatch=arb_cfg["trigger"].get("barcode_cv_mismatch", True),
         )
 
+    scan_cfg = pipeline_cfg.get("scan", {})
     scan = ScanStation(
         scan_line_ratio=env.scan_line_px() / env._cam_w,
         routing=routing,
         event_bus=bus,
         arbitrator=arbitrator,
+        barcode_enabled=scan_cfg.get("barcode_enabled", True),
     )
 
     detector = YoloDetector(
@@ -186,6 +193,7 @@ def run_pybullet_demo(
                     metrics.record_no_read()
                 cmd = timing.schedule_divert(snap, route, cv_frame_idx, frame.shape[1])
                 if cmd:
+                    snap.state = TrackState.SCHEDULED
                     metrics.record_scheduled(body_id=snap.track_id)
                     bus.publish(
                         Event(

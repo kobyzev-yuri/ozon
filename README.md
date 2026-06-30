@@ -9,6 +9,8 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Слои Field / WCS / WMS, модули, события |
 | [PRESENTATION.md](PRESENTATION.md) | Набросок слайдов (~7–10 мин) |
 | [DEFENSE.md](DEFENSE.md) | **Питч 3 мин + Q&A жюри + пояснительная записка** |
+| [docs/EVENTS.md](docs/EVENTS.md) | **События, штрихкод, сценарии переходов** |
+| [docs/ERROR_CASES.md](docs/ERROR_CASES.md) | **Ошибки: кейсы и решения** |
 | [PLAN.md](PLAN.md) | Детальный план подготовки до/после ТЗ |
 
 ## Быстрый старт
@@ -50,14 +52,24 @@ src/sorter/
 - `config/pipeline.yaml` — геометрия линий, YOLO, arbitrator
 - `config/routes.yaml` — Mock WMS: класс → зона
 
-## LLM Arbitrator
+## LLM Arbitrator (ProxyAPI + Gemini Vision)
+
+Как в [scinikel](../scinikel): ключ и endpoint в `config.env`.
 
 ```bash
-export GEMINI_API_KEY=your_key
-# config/pipeline.yaml → arbitrator.enabled: true
+cp config.env.example config.env
+# OPENAI_API_KEY=...  (ключ ProxyAPI)
+# GEMINI_MODEL=gemini-3.5-flash
+# GEMINI_BASE_URL=https://api.proxyapi.ru/google
 ```
 
-Спорные случаи (низкий confidence) → LLM выбирает зону → `logs/arbitrator.jsonl`.
+В `config/pipeline.yaml`:
+```yaml
+arbitrator:
+  enabled: true
+```
+
+Арбитр вызывается только в спорных кейсах (низкий confidence YOLO): отправляет **crop посылки** в [`gemini-3.5-flash`](https://proxyapi.ru/docs/google-models) через `api.proxyapi.ru/google`, ответ → зона + `logs/arbitrator.jsonl`.
 
 ## Зависимости
 

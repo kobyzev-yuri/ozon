@@ -11,6 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from sorter.config import load_env_files  # noqa: E402
+
+load_env_files()
+
 from sorter.main_loop import load_config, run_loop, run_video  # noqa: E402
 
 

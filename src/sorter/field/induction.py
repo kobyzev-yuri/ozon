@@ -22,6 +22,9 @@ class InductionFilter:
             if tid not in seen:
                 del self._track_lengths[tid]
 
+    def track_length(self, track_id: int) -> int:
+        return self._track_lengths.get(track_id, 0)
+
     def is_inducted(self, track_id: int) -> bool:
         return self._track_lengths.get(track_id, 0) >= self.min_track_length
 

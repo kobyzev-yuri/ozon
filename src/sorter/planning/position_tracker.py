@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sorter.core.events import Event, EventBus
 from sorter.core.types import Detection, TrackSnapshot, TrackState
 from sorter.field.induction import InductionFilter
 
@@ -7,10 +8,12 @@ from sorter.field.induction import InductionFilter
 class PositionTracker:
     """Этап 3: трекинг ≈ энкодер ленты."""
 
-    def __init__(self, induction: InductionFilter) -> None:
+    def __init__(self, induction: InductionFilter, event_bus: EventBus | None = None) -> None:
         self.induction = induction
+        self.event_bus = event_bus
         self._tracks: dict[int, TrackSnapshot] = {}
         self._prev_pos: dict[int, float] = {}
+        self._inducted_logged: set[int] = set()
 
     def update(
         self,
@@ -55,6 +58,19 @@ class PositionTracker:
 
             if snap.state == TrackState.NEW and self.induction.is_inducted(tid):
                 snap.state = TrackState.INDUCTED
+                if self.event_bus is not None and tid not in self._inducted_logged:
+                    self._inducted_logged.add(tid)
+                    self.event_bus.publish(
+                        Event(
+                            event="inducted",
+                            frame=frame_idx,
+                            track_id=tid,
+                            payload={
+                                "class": snap.class_name,
+                                "track_length": self.induction.track_length(tid),
+                            },
+                        )
+                    )
 
         for tid in list(self._tracks):
             if tid not in active_ids:

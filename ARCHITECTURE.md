@@ -155,8 +155,11 @@ CommandQueue      →  актуатор
 | Rate limit | `max_calls_per_minute` в config |
 | Fallback | При ошибке API → WMS preliminary |
 | Демо без API | `arbitrator.enabled: false` |
+| **ProxyAPI** | `GEMINI_BASE_URL=https://api.proxyapi.ru/google`, модель по умолчанию **`gemini-3.5-flash`** ([список моделей](https://proxyapi.ru/docs/google-models)) |
+| Vision | crop JPEG → `inline_data` в `generateContent`; ключ `OPENAI_API_KEY` или `GEMINI_API_KEY` |
+| Конфиг | `config.env` (как в scinikel), см. `config.env.example` |
 
-**Фраза для защиты:** «Нейросеть видит объект, WMS знает правила, LLM — *диспетчер* на пограничных случаях с объяснимым reasoning в логе».
+**Фраза для защиты:** «Нейросеть видит объект, WMS знает правила, LLM — *диспетчер* на пограничных случаях: отправляем crop в Gemini 3.5 Flash через ProxyAPI, reasoning в `arbitrator.jsonl`».
 
 ---
 
