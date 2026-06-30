@@ -1,0 +1,39 @@
+# Mock WMS: идентификатор → целевой карман (не ML)
+# После ТЗ: дополнить классами/штрихкодами из постановки
+
+default_zone: zone_reject
+
+# CV-класс (имя из YOLO dataset) → зона сортировки
+by_class:
+  box: chute_a
+  sphere: chute_b
+  bag: chute_c
+
+# Штрихкод → зона (если включён pyzbar)
+by_barcode_prefix:
+  "460": chute_a   # пример EAN-13 префикса
+  "461": chute_b
+
+# Кластер / направление (нарратив Ozon WMS)
+by_cluster:
+  siberia: chute_a
+  moscow: chute_b
+  south: chute_c
+
+zones:
+  chute_a:
+    label: "Зона A — Сибирь"
+    actuator: cross-belt
+    direction: left
+  chute_b:
+    label: "Зона B — Москва"
+    actuator: cross-belt
+    direction: right
+  chute_c:
+    label: "Зона C — Юг"
+    actuator: pop-up
+    direction: right
+  zone_reject:
+    label: "No Read / ручная выбраковка"
+    actuator: cross-belt
+    direction: left

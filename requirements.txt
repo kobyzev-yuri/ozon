@@ -1,0 +1,15 @@
+# Core — уже в conda py12
+ultralytics>=8.4
+opencv-python>=4.8
+numpy>=1.26
+PyYAML>=6.0
+
+# UI (фаза 4)
+# gradio>=4.0
+
+# LLM arbitrator (опционально)
+# google-generativeai>=0.8
+# openai>=1.0
+
+# Barcode (опционально, после ТЗ)
+# pyzbar

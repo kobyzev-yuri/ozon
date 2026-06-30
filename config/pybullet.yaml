@@ -1,0 +1,37 @@
+# PyBullet Digital Twin — параметры сцены
+
+physics_hz: 240
+cv_interval_steps: 16          # ~15 FPS при 240 Гц
+
+conveyor:
+  length: 6.0
+  width: 1.2
+  height: 0.2
+  speed_m_per_s: 0.6
+
+camera:
+  eye: [0.0, 0.0, 1.6]
+  target: [0.0, 0.0, 0.2]
+  width: 416
+  height: 416
+  fov: 55
+
+lines_world:
+  scan_x: 0.0                  # камера / скан-портал
+  actuation_x: 1.2             # cross-belt пушер
+  spawn_x: -2.5
+  cleanup_x: 3.5               # конец ленты
+  cleanup_z: 0.05              # упал с ленты
+
+spawner:
+  interval_steps: 500          # ~2 с при 240 Гц
+  spawn_z: 0.4
+  y_offset_range: [-0.2, 0.2]
+  scale_box: 0.2
+  scale_sphere: 0.25
+  kinds: [box, sphere]
+
+actuator:
+  force_y: 12.0                # импульс cross-belt
+
+gui: true

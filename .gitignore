@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+config.env
+logs/*.jsonl
+models/*.pt
+yolo*.pt
+!models/.gitkeep
+!logs/.gitkeep

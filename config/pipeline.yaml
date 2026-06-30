@@ -1,0 +1,33 @@
+# Геометрия линии (пиксели для 2D / метры для PyBullet — см. frame_source)
+belt:
+  speed_px_per_frame: 2.5      # 2D video
+  speed_m_per_s: 0.5           # PyBullet twin
+
+lines:
+  scan_line_ratio: 0.45        # доля ширины кадра по оси движения
+  actuation_line_ratio: 0.72
+  actuator_lead_frames: 18     # компенсация задержки актуатора
+
+induction:
+  min_track_length: 5
+  min_bbox_gap_px: 40
+
+perception:
+  model_path: models/best.pt   # после обучения; fallback: yolo11n.pt
+  conf_threshold: 0.35
+  tracker: config/bytetrack.yaml
+  use_color_fallback: true     # демо без весов
+
+arbitrator:
+  enabled: false               # включить при GEMINI_API_KEY / OPENAI_API_KEY
+  provider: gemini             # gemini | openai
+  model: gemini-2.0-flash
+  trigger:
+    min_confidence: 0.55       # ниже → запрос к LLM
+    class_vote_disagreement: true
+    barcode_cv_mismatch: true
+  max_calls_per_minute: 10     # защита бюджета на демо
+
+logging:
+  events_path: logs/events.jsonl
+  arbitrator_path: logs/arbitrator.jsonl
