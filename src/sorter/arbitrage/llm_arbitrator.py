@@ -136,7 +136,8 @@ class LLMArbitrator:
             f"confidence: {snap.confidence:.2f}\n"
             f"barcode: {snap.barcode or 'нет'}\n"
             f"wms_preliminary: {route.zone} ({route.reason})\n"
-            "chute_a — коробки/тип A; chute_b — сферы/тип B; chute_c — прочее; zone_reject — no read.\n"
+            "chute_a / chute_b / chute_c — физические рукава (направление из WMS по штрихкоду); "
+            "cv_class — тип упаковки (форма), не рукав. zone_reject — no read.\n"
         )
 
     def _encode_image_b64(self, crop_bgr: np.ndarray) -> str:

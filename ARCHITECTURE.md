@@ -7,7 +7,9 @@
 
 ## 1. Идея в одном абзаце
 
-Мы строим **переносимый контур сортировки** в стиле реального хаба Ozon: камера над лентой → идентификация → WMS-маршрут → ПЛК-тайминг → актуатор. Источник кадра сменный: RTSP, `.mp4`, **PyBullet** (Digital Twin). CV-пайплайн и бизнес-логика **не зависят** от среды.
+Мы строим **переносимый контур сортировки** в стиле реального хаба Ozon: камера → идентификация (штрихкод + CV) → **WMS-маршрут по коду** → ПЛК-тайминг → актуатор. Источник кадра сменный: RTSP, `.mp4`, **PyBullet**. CV-пайплайн и бизнес-логика **не зависят** от среды.
+
+**Бизнес-правила (тип vs рукав):** [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md)
 
 ---
 
@@ -61,7 +63,7 @@ flowchart TB
 |------|-----------------|--------|
 | **Field** | Кадры, физика ленты, сила актуатора | `field/`, `sim/` |
 | **WCS** | CV, трекинг, тайминг, очередь команд | `perception/`, `planning/`, `wcs/` |
-| **WMS** | Правила «куда сортировать» | `wms/routing_table.py` |
+| **WMS** | Правила «куда сортировать» (штрихкод / кластер; CV — fallback) | `wms/routing_table.py` |
 | **Arbitrator** | Разрешение конфликтов CV ↔ WMS | `arbitrage/llm_arbitrator.py` |
 
 ---
@@ -75,7 +77,7 @@ flowchart TB
 | Этап | Реальный хаб | Наш код |
 |------|--------------|---------|
 | 1. Индукция | Сингулятор, зазоры | `InductionFilter` |
-| 2. Sensing | Скан-портал, штрихкод, ОВХ | `ScanStation` + `YoloDetector` |
+| 2. Sensing | Скан-портал, штрихкод → маршрут; ОВХ / тип — CV | `ScanStation` + `YoloDetector` |
 | 3. Позиционирование | Энкодер + ETA до рукава | `PositionTracker` + `TimingController` |
 | 4. Диверсия | Cross-belt / pop-up / shoe | `SimActuator` + `CommandQueue` |
 
@@ -125,11 +127,11 @@ def detect(frame) -> list[Detection]:
 Файл: `logs/events.jsonl` — аналог WCS event stream.
 
 ```json
-{"event": "scanned", "track_id": 17, "frame": 245, "class": "box", "zone": "chute_a", "route_source": "cv"}
-{"event": "scheduled", "track_id": 17, "execute_frame": 312, "eta_frames": 67}
-{"event": "diverted", "track_id": 17, "zone": "chute_a", "actuator": "cross-belt"}
-{"event": "arbitrator_decision", "track_id": 42, "final": {"zone": "chute_b", "source": "llm_arbitrator"}}
+{"event": "scanned", "track_id": 17, "class": "box", "barcode": "461...", "zone": "chute_b", "route_source": "barcode"}
+{"event": "scanned", "track_id": 18, "class": "box", "barcode": null, "zone": "chute_a", "route_source": "cv"}
 ```
+
+Первый — прод-логика: тип `box`, рукав из штрихкода. Второй — demo-fallback без EAN.
 
 State machine трека: `new → inducted → scanned → scheduled → diverted`.
 
@@ -237,7 +239,8 @@ env.step()  # внутри: spawner.tick → conveyor velocity → spawner.clean
 
 - Spawned / Removed (утечки памяти нет)
 - Scanned / Scheduled / Diverted
-- **Divert accuracy %** (box→chute_a, sphere→chute_b)
+- **Divert accuracy %** — в PyBullet: сверка с demo-fallback (`box→chute_a`); не KPI городов WMS
+- Счётчики Boxes/Spheres — **тип упаковки** в демо, не рукава A/B
 - YOLO frames / detections
 
 После остановки (`q`) — сводка в консоль.
@@ -269,5 +272,6 @@ env.step()  # внутри: spawner.tick → conveyor velocity → spawner.clean
 ## Ссылки
 
 - [Ozon Tech: ОВХ + YOLO на складе](https://www.pvsm.ru/machine-learning/391187)
+- [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md) — бизнес-правила маршрутизации
 - Внутренний план: `PLAN.md`
 - Набросок презентации: `PRESENTATION.md`

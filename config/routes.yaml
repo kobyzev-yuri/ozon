@@ -1,36 +1,48 @@
-# Mock WMS: идентификатор → целевой карман (не ML)
-# После ТЗ: дополнить классами/штрихкодами из постановки
+# Mock WMS — бизнес-правила маршрутизации (не ML).
+# Полное описание осей «тип упаковки vs рукав»: docs/BUSINESS_RULES.md
+#
+# НА ПРОДЕ:
+#   - Направление (chute_*) задаёт ШТРИХКОД / кластер заказа в WMS.
+#   - CV-класс (box, sphere) — тип упаковки / ОВХ, НЕ город назначения.
+#   - Один тип box может уехать в chute_a или chute_b — зависит от кода.
+#
+# ДЕМО PyBullet (ограничение симулятора):
+#   - На объектах нет текстур штрихкодов → pyzbar нечего читать.
+#   - Секция by_class ниже — ВРЕМЕННЫЙ FALLBACK, чтобы лента работала без EAN.
+#   - Не интерпретировать как «box = Сибирь, sphere = Москва» в бизнес-смысле.
 
 default_zone: zone_reject
 
-# CV-класс (имя из YOLO dataset) → зона сортировки
-by_class:
-  box: chute_a
-  sphere: chute_b
-  bag: chute_c
-
-# Штрихкод → зона (если включён pyzbar)
+# --- Основной путь на проде: штрихкод → рукав (направление) ---
 by_barcode_prefix:
-  "460": chute_a   # пример EAN-13 префикса
-  "461": chute_b
+  "460": chute_a   # пример: префикс EAN → кластер A (условно «Сибирь»)
+  "461": chute_b   # пример: префикс EAN → кластер B (условно «Москва»)
+  "462": chute_c   # пример: другой регион
 
-# Кластер / направление (нарратив Ozon WMS)
+# --- Кластер / направление из WMS (заказ, не форма коробки) ---
 by_cluster:
   siberia: chute_a
   moscow: chute_b
   south: chute_c
 
+# --- FALLBACK: CV-класс → рукав только при отсутствии штрихкода ---
+# В демо PyBullet это единственный рабочий путь; на проде обычно → zone_reject.
+by_class:
+  box: chute_a
+  sphere: chute_b
+  bag: chute_c
+
 zones:
   chute_a:
-    label: "Зона A — Сибирь"
+    label: "Рукав A — кластер Сибирь (направление, не тип товара)"
     actuator: cross-belt
     direction: left
   chute_b:
-    label: "Зона B — Москва"
+    label: "Рукав B — кластер Москва (направление, не тип товара)"
     actuator: cross-belt
     direction: right
   chute_c:
-    label: "Зона C — Юг"
+    label: "Рукав C — кластер Юг"
     actuator: pop-up
     direction: right
   zone_reject:

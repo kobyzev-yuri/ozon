@@ -154,7 +154,7 @@ class SortMetrics:
         return [
             "=== Ozon Tech Sorting Dashboard ===",
             f"Processed: {self.total_processed} | Spawned: {self.spawned} | Removed: {self.removed}",
-            f"Boxes (Type A): {self.processed_boxes} | Spheres (Type B): {self.processed_spheres}",
+            f"Boxes (CV type): {self.processed_boxes} | Spheres (CV type): {self.processed_spheres}",
             f"Throughput: {self.throughput_per_min:.1f} items/min  (spawn: {self.spawn_rate_per_min:.1f}/min)",
             f"AI Accuracy: {self.ai_accuracy:.1f}%  |  AI Missed: {self.ai_missed}",
             f"Scanned: {self.scanned}  Scheduled: {self.scheduled}  Diverted: {self.diverted}",
@@ -190,7 +190,7 @@ class SortMetrics:
         )
         cv2.putText(
             out,
-            f"Boxes (A): {self.processed_boxes} | Spheres (B): {self.processed_spheres}",
+            f"Boxes (CV): {self.processed_boxes} | Spheres (CV): {self.processed_spheres}",
             (10, 68),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,

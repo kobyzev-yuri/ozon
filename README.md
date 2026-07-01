@@ -6,6 +6,7 @@
 
 | Файл | Содержание |
 |------|------------|
+| [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md) | **Бизнес-правила: тип упаковки vs рукав, штрихкод vs CV** |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Слои Field / WCS / WMS, модули, события |
 | [PRESENTATION.md](PRESENTATION.md) | Набросок слайдов (~7–10 мин) |
 | [DEFENSE.md](DEFENSE.md) | **Питч 3 мин + Q&A жюри + пояснительная записка** |
@@ -50,7 +51,7 @@ src/sorter/
 ## Конфигурация
 
 - `config/pipeline.yaml` — геометрия линий, YOLO, arbitrator
-- `config/routes.yaml` — Mock WMS: класс → зона
+- `config/routes.yaml` — Mock WMS: штрихкод/кластер → рукав; CV — fallback (см. [BUSINESS_RULES.md](docs/BUSINESS_RULES.md))
 
 ## LLM Arbitrator (ProxyAPI + Gemini Vision)
 
