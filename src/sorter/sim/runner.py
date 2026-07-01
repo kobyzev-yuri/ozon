@@ -17,6 +17,7 @@ from sorter.planning.command_queue import CommandQueue
 from sorter.planning.position_tracker import PositionTracker
 from sorter.planning.timing_controller import TimingController
 from sorter.core.types import Detection, TrackState
+from sorter.sim.barcode_simulator import SimBarcodeReader
 from sorter.sim.body_matcher import match_detections_to_bodies
 from sorter.sim.metrics import SortMetrics
 from sorter.sim.pybullet_env import PyBulletConveyor, load_pybullet_config
@@ -121,12 +122,21 @@ def run_pybullet_demo(
         )
 
     scan_cfg = pipeline_cfg.get("scan", {})
+    bs_cfg = pb_cfg.get("barcode_sim", {})
+    sim_barcode_reader = None
+    if bs_cfg.get("enabled", False):
+        sim_barcode_reader = SimBarcodeReader(
+            truth_lookup=env.spawner.barcode_for,
+            prefixes=list(bs_cfg.get("prefixes", ["460", "461"])),
+            misread_probability=float(bs_cfg.get("misread_probability", 0.08)),
+        )
     scan = ScanStation(
         scan_line_ratio=env.scan_line_px() / env._cam_w,
         routing=routing,
         event_bus=bus,
         arbitrator=arbitrator,
         barcode_enabled=scan_cfg.get("barcode_enabled", True),
+        sim_barcode_reader=sim_barcode_reader.read if sim_barcode_reader else None,
     )
 
     detector = YoloDetector(
@@ -135,7 +145,11 @@ def run_pybullet_demo(
         tracker_yaml=perception["tracker"],
         use_color_fallback=False,
     )
-    actuator = SimActuator(bus, frame_source=env)
+    actuator = SimActuator(
+        bus,
+        frame_source=env,
+        fault_sim=env.fault_sim if env.fault_sim.enabled else None,
+    )
 
     cv_frame_idx = 0
     snapshots_by_id: dict = {}
@@ -210,10 +224,15 @@ def run_pybullet_demo(
                     )
 
             for cmd in queue.pop_due(cv_frame_idx):
-                kind = env.spawner.kind_for(cmd.track_id)
-                expected = metrics.expected_zone_for_kind(kind) if kind else None
-                actuator.execute(cmd, cv_frame_idx, snapshots_by_id)
-                metrics.record_divert(cmd.track_id, expected, cmd.zone)
+                snap = snapshots_by_id.get(cmd.track_id)
+                expected = snap.target_zone if snap and snap.target_zone else None
+                outcome = actuator.execute(cmd, cv_frame_idx, snapshots_by_id)
+                if not outcome.applies_force:
+                    metrics.record_actuator_miss()
+                else:
+                    metrics.record_divert(cmd.track_id, expected, cmd.zone)
+                    if outcome.kind != "normal":
+                        metrics.record_actuator_fault()
 
             spawned = env.spawner.total_spawned
             if spawned > metrics.spawned:

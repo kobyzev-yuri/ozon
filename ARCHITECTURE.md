@@ -20,7 +20,7 @@ flowchart TB
     subgraph FIELD["FIELD — Digital Twin / RTSP"]
         FS[FrameSource]
         PB[PyBullet / Video / MJPEG]
-        ACT_PH[SimActuator.physics]
+        ACT_PH[PyBullet divert / physics]
         PB --> FS
     end
 
@@ -32,28 +32,41 @@ flowchart TB
         TIM[TimingController]
         Q[CommandQueue]
         SA[SimActuator]
-        FS --> DET --> IND --> POS
-        POS --> SCAN
+        FS --> DET --> IND --> POS --> SCAN
         SCAN --> TIM --> Q --> SA
         SA --> ACT_PH
     end
 
-    subgraph WMS["WMS — маршрутизация (не ML)"]
-        RT[RoutingTable / routes.yaml]
-        SCAN --> RT
-        TIM --> RT
+    subgraph CORR_SCAN["Блок коррекции маршрута (внутри ScanStation)"]
+        direction TB
+        ID["① Идентификация<br/>pyzbar · barcode_sim · class"]
+        WMS_P["② WMS preliminary<br/>RoutingTable.resolve"]
+        CHK{"③ Спорный кейс?<br/>conf · barcode_cv_conflict"}
+        LLM["④ LLM Arbitrator<br/>crop + Gemini"]
+        ROUTE["⑤ Финальный маршрут"]
+        ID --> WMS_P --> CHK
+        CHK -->|да + enabled| LLM --> ROUTE
+        CHK -->|нет| ROUTE
     end
 
-    subgraph ARB["LLM Arbitrator (опционально)"]
-        LLM[LLMArbitrator]
-        SCAN -.->|спорные случаи| LLM
-        LLM -.-> RT
+    subgraph CORR_EXEC["Блок коррекции исполнения (WCS, частично)"]
+        direction TB
+        ETA["⑥ ETA / CommandQueue"]
+        FAULT["⑦ fault_sim<br/>slip · miss · weak"]
+        ETA --> FAULT
     end
+
+    subgraph WMS["WMS — правила (не ML)"]
+        RT[routes.yaml / RoutingTable]
+    end
+
+    SCAN --- CORR_SCAN
+    WMS_P --> RT
+    LLM -.->|arbitrator_decision| AJL[arbitrator.jsonl]
+    TIM --- CORR_EXEC
 
     subgraph OBS["Observability"]
-        EB[EventBus]
-        JL[events.jsonl]
-        EB --> JL
+        EB[EventBus → events.jsonl]
     end
 
     WCS --> EB
@@ -64,7 +77,42 @@ flowchart TB
 | **Field** | Кадры, физика ленты, сила актуатора | `field/`, `sim/` |
 | **WCS** | CV, трекинг, тайминг, очередь команд | `perception/`, `planning/`, `wcs/` |
 | **WMS** | Правила «куда сортировать» (штрихкод / кластер; CV — fallback) | `wms/routing_table.py` |
-| **Arbitrator** | Разрешение конфликтов CV ↔ WMS | `arbitrage/llm_arbitrator.py` |
+| **Коррекция маршрута** | Спорный scan → LLM или WMS preliminary | `scan_station.py`, `llm_arbitrator.py` |
+| **Коррекция исполнения** | Проскальзывание, сбой пушера (сим) | `fault_simulator.py`, `actuator.py` |
+
+Подробная матрица сбоев и роли арбитра: [docs/FAULT_MATRIX.md](docs/FAULT_MATRIX.md).
+
+### 2a. Блок коррекции маршрута (детально)
+
+Выполняется **синхронно на SCAN LINE** в одном вызове `ScanStation.process()` — отдельного `TrackState` в памяти нет, но в логе видны шаги:
+
+```
+INDUCTED @ SCAN LINE
+    │
+    ├─① pyzbar / barcode_sim  →  snap.barcode
+    ├─② RoutingTable            →  preliminary route + barcode_cv_conflict?
+    ├─③ should_arbitrate?       →  conf < 0.55 | conflict
+    │       └─④ LLMArbitrator   →  arbitrator_decision (arbitrator.jsonl)
+    └─⑤ state = SCANNED         →  event scanned (финальный zone, route_source)
+```
+
+| Шаг | Реализовано | Событие в логе |
+|-----|-------------|----------------|
+| ① Идентификация | ✓ | поля `barcode`, `barcode_simulated`, `barcode_misread` в `scanned` |
+| ② WMS preliminary | ✓ | `route_source`, `reason` |
+| ③–④ LLM-арбитр | ✓ опционально | `arbitrator_decision` |
+| ⑤ Фиксация | ✓ | `scanned` / `no_read` |
+
+### 2b. Блок коррекции исполнения (WCS)
+
+| Шаг | Реализовано | Событие / метрика |
+|-----|-------------|-------------------|
+| ⑥ ETA по позиции | ✓ `TimingController` | `scheduled` |
+| ⑦ Проскальзывание ленты | ✓ `fault_sim.belt_slip` | объект не у ACT LINE → `divert_wrong` |
+| ⑦ Сбой пушера | ✓ `fault_sim.actuator` | `actuator_fault`, `actuator_miss` |
+| Пересчёт ETA каждый кадр | план P6 | — |
+| Отмена divert при потере трека | план P1 | `divert_cancelled` |
+| Триггер по ACTUATION LINE | план P2 | — |
 
 ---
 
@@ -133,22 +181,38 @@ def detect(frame) -> list[Detection]:
 
 Первый — прод-логика: тип `box`, рукав из штрихкода. Второй — demo-fallback без EAN.
 
-State machine трека: `new → inducted → scanned → scheduled → diverted`.
+При спорном scan (конфликт / низкий conf) — дополнительно `arbitrator_decision` в `logs/arbitrator.jsonl`; финальный `zone` попадает в `scanned`.
+
+**Автомат состояний трека** (память): `NEW → INDUCTED → SCANNED → SCHEDULED → DIVERTED`.  
+**Коррекция маршрута** — подпроцесс между `INDUCTED` и `SCANNED` (см. [EVENTS.md](docs/EVENTS.md) §5).  
+**Сбой пушера** — событие `actuator_fault` без перехода в `DIVERTED`.
 
 ---
 
-## 7. LLM Arbitrator — оригинальный ход
+## 7. LLM Arbitrator — ветка блока коррекции маршрута
 
-**Проблема:** на линии бывают *спорные* решения — низкий confidence YOLO, грязный штрихкод, конфликт CV-класса и WMS-правила.
+**Место в архитектуре:** шаги ③–④ внутри `ScanStation` (см. §2a). Не отдельный слой WCS — **корректор маршрута** на SCAN LINE.
 
-**Решение:** не «LLM вместо YOLO», а **арбитр второго уровня** (как audit в chicken_count):
+**Проблема:** на линии бывают *спорные* решения — низкий confidence YOLO, ошибочный штрихкод (`barcode_misread`), конфликт `barcode_cv_conflict`.
+
+**Решение:** не «LLM вместо YOLO», а **арбитр второго уровня**:
+
+```mermaid
+flowchart LR
+    PRE[WMS preliminary] --> CHK{should_arbitrate?}
+    CHK -->|нет| FIX[scanned]
+    CHK -->|conf · conflict| LLM[LLMArbitrator]
+    LLM --> ADJ[arbitrator_decision]
+    ADJ --> FIX
+    FIX --> Q[CommandQueue]
+```
 
 ```
-YOLO + WMS rules  →  preliminary route
-        ↓ (если confidence < 0.55 или conflict)
-LLM + crop ROI    →  final zone + reasoning в arbitrator.jsonl
+① pyzbar / barcode_sim  →  ② RoutingTable  →  preliminary route
+        ↓ (если confidence < 0.55 или barcode_cv_conflict)
+④ LLM + crop ROI    →  final zone + reasoning в arbitrator.jsonl
         ↓
-CommandQueue      →  актуатор
+⑤ scanned + scheduled → актуатор
 ```
 
 | Свойство | Значение |

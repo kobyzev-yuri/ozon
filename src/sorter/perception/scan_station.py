@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from sorter.core.events import Event, EventBus
 from sorter.core.types import RouteDecision, TrackSnapshot, TrackState
 from sorter.perception.barcode_decoder import decode_barcode
@@ -22,12 +25,14 @@ class ScanStation:
         event_bus: EventBus,
         arbitrator=None,
         barcode_enabled: bool = True,
+        sim_barcode_reader: Callable[[int], Any] | None = None,
     ) -> None:
         self.scan_line_ratio = scan_line_ratio
         self.routing = routing
         self.event_bus = event_bus
         self.arbitrator = arbitrator
         self.barcode_enabled = barcode_enabled
+        self.sim_barcode_reader = sim_barcode_reader
         self._scanned: set[int] = set()
 
     def scan_line_px(self, frame_width: int) -> float:
@@ -71,8 +76,18 @@ class ScanStation:
 
             # --- Сканирование штрихкода (скан-портал) ---
             barcode_read = None
+            barcode_simulated = False
+            barcode_misread = False
+            barcode_truth = None
             if self.barcode_enabled:
                 barcode_read = decode_barcode(frame, snap.bbox)
+            if barcode_read is None and self.sim_barcode_reader is not None:
+                sim = self.sim_barcode_reader(snap.track_id)
+                if sim is not None:
+                    barcode_read = sim.value
+                    barcode_simulated = True
+                    barcode_misread = sim.misread
+                    barcode_truth = sim.truth
             if barcode_read:
                 snap.barcode = barcode_read
 
@@ -95,6 +110,11 @@ class ScanStation:
                 "route_source": route.source,
                 "reason": route.reason,
             }
+            if barcode_simulated:
+                payload["barcode_simulated"] = True
+            if barcode_misread:
+                payload["barcode_misread"] = True
+                payload["barcode_truth"] = barcode_truth
             if snap.metadata.get("barcode_cv_conflict"):
                 payload["cv_zone"] = snap.metadata.get("cv_zone")
                 payload["barcode_zone"] = snap.metadata.get("barcode_zone")

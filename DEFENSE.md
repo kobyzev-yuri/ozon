@@ -161,10 +161,11 @@ GPU на хакатоне — для разработки; прод — edge.»
 |------|------------|
 | Симуляция (Field) | PyBullet: лента, спавнер, актуатор |
 | CV (ИИ) | YOLO11 + ByteTrack, top-down камера |
-| WCS | ScanStation, PositionTracker, CommandQueue, TimingController |
+| WCS | ScanStation (+ блок коррекции), PositionTracker, CommandQueue |
 | WMS | `RoutingTable` / `routes.yaml` |
+| Коррекция маршрута | LLM Arbitrator на SCAN (опционально) |
+| Коррекция исполнения | `fault_sim` в PyBullet (slip, miss пушера) |
 | Observability | `events.jsonl`, KPI Dashboard |
-| Опционально | LLM Arbitrator |
 
 ### 3. KPI Dashboard
 

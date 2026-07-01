@@ -6,6 +6,7 @@
 
 | Файл | Содержание |
 |------|------------|
+| [docs/FAULT_MATRIX.md](docs/FAULT_MATRIX.md) | **Матрица сбоев: симулятор vs видео, арбитр vs ПЛК** |
 | [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md) | **Бизнес-правила: тип упаковки vs рукав, штрихкод vs CV** |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Слои Field / WCS / WMS, модули, события |
 | [PRESENTATION.md](PRESENTATION.md) | Набросок слайдов (~7–10 мин) |

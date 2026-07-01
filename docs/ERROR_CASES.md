@@ -2,7 +2,8 @@
 
 > Привязка к текущему коду: `ScanStation`, `RoutingTable`, `CommandQueue`, `LLMArbitrator`, метрики `ai_missed`.  
 > См. также: [EVENTS.md](EVENTS.md) — автомат состояний.  
-> **Тип упаковки vs рукав:** [BUSINESS_RULES.md](BUSINESS_RULES.md).
+> **Тип упаковки vs рукав:** [BUSINESS_RULES.md](BUSINESS_RULES.md).  
+> **Полная матрица сбоев (сим / видео / арбитр):** [FAULT_MATRIX.md](FAULT_MATRIX.md).
 
 ---
 
@@ -159,6 +160,8 @@
 | Решение | Детали |
 |---------|--------|
 | **Сейчас** | `CommandQueue` по кадрам + `actuator_lead_frames` |
+| **Сейчас** | `fault_sim.belt_slip` в PyBullet — проскальзывание на части посылок |
+| **Сейчас** | `fault_sim.actuator` — miss / weak / overshoot (`actuator_fault` в логе) |
 | **Сейчас** | `PositionTracker.velocity` — база для пересчёта ETA |
 | **Дальше** | Триггер по **ACTUATION LINE** в world X / пикселях, не только по таймеру |
 | **Прод** | Оптическая завеса перед пушером — финальный триггер |
@@ -279,6 +282,8 @@
 
 ## Сценарии для демо жюри (контролируемые ошибки)
 
+> Полный чеклист: [FAULT_MATRIX.md](FAULT_MATRIX.md) §13.
+
 ### A. Показать No Read
 - `barcode_enabled: false` + неизвестный класс YOLO → `zone_reject` + `no_read`.
 
@@ -291,6 +296,13 @@
 
 ### D. Честно про ID-switch
 - Показать `docs/EVENTS.md` §9 + решение: barcode после scan.
+
+### E. Проскальзывание и промах пушера (PyBullet)
+- `fault_sim.enabled: true` — см. `config/pybullet.yaml`.
+- В логе: `actuator_fault`, метрики `actuator_miss` / `actuator_faults`.
+
+### F. Ошибочный штрихкод
+- `barcode_sim.misread_probability` → `barcode_misread` + неверный рукав; с арбитром — `arbitrator_decision`.
 
 ---
 

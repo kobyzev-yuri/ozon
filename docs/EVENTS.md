@@ -39,7 +39,8 @@
 | **WCS / ПЛК** | Логика «когда толкнуть»: очередь команд и расчёт времени до актуатора |
 | **ACTUATION LINE** | Линия срабатывания пушера (~72% ширины кадра) |
 | **Актуатор** | Толкатель / cross-belt: в симуляторе — `applyExternalForce` в PyBullet |
-| **Арбитр (LLM)** | Gemini по фото crop — только для спорных случаев (низкая уверенность YOLO) |
+| **Арбитр (LLM)** | Gemini по crop — **блок коррекции маршрута** на SCAN LINE (шаг ④) |
+| **Блок коррекции** | Цепочка: идентификация → WMS → (арбитр?) → финальный маршрут; отдельно — коррекция исполнения (ETA, пушер) |
 | **Событие (event)** | Запись в журнал: что и когда произошло (для аудита и KPI) |
 | **Состояние (state)** | Внутренний этап жизни посылки в памяти программы (`NEW` → … → `DIVERTED`) |
 
@@ -64,8 +65,9 @@
   detector.detect()                      
   tracker.update()          ──────────►  inducted (если готов)
   scan.process()            ──────────►  scanned, no_read
+                                          arbitrator_decision (если спор)
   timing.schedule_divert()  ──────────►  scheduled
-  actuator.execute()        ──────────►  diverted
+  actuator.execute()        ──────────►  diverted, actuator_fault
 ```
 
 ---
@@ -79,7 +81,8 @@
 | **`no_read`** | `ScanStation` | `perception/scan_station.py` | После scan: нет штрихкода и зона = `zone_reject` |
 | **`scheduled`** | `main_loop` / `sim/runner.py` | `main_loop.py` | После scan: команда попала в `CommandQueue` |
 | **`diverted`** | `SimActuator` | `wcs/actuator.py` | Наступил кадр `execute_frame` — пушер сработал |
-| **`arbitrator_decision`** | `LLMArbitrator` | `arbitrage/llm_arbitrator.py` | Внутри scan: спорный кейс, ответ Gemini |
+| **`arbitrator_decision`** | `LLMArbitrator` | `arbitrage/llm_arbitrator.py` | Шаг ④ коррекции: спорный scan, ответ Gemini |
+| **`actuator_fault`** | `SimActuator` | `wcs/actuator.py` | Пушер не сработал (`miss`); состояние остаётся `SCHEDULED` |
 
 Все они вызывают **`event_bus.publish(Event(...))`**.
 
@@ -108,12 +111,15 @@ EventBus.publish(event):
 │  1. frame = источник.read()     # видео или PyBullet-камера │
 │  2. detections = YOLO.track()   # bbox, class, track_id      │
 │  3. snapshots = tracker.update() # состояния + inducted      │
-│  4. scan.process()               # SCAN LINE, штрихкод, WMS │
-│       └─► scanned / no_read                                  │
+│  4. scan.process()               # SCAN LINE + блок коррекции маршрута │
+│       ├─① barcode / sim          │
+│       ├─② WMS preliminary        │
+│       ├─③④ LLM? → arbitrator    │
+│       └─► scanned / no_read      │
 │  5. timing.schedule_divert()     # ETA → CommandQueue        │
 │       └─► scheduled                                          │
 │  6. queue.pop_due(frame_idx)     # пора ли толкать?           │
-│       └─► actuator.execute() → diverted                      │
+│       └─► actuator.execute() → diverted | actuator_fault     │
 │  7. overlay на экран + метрики                               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -124,32 +130,86 @@ EventBus.publish(event):
 
 ## 5. Автомат состояний посылки
 
-Одна посылка = один `track_id`. Состояния хранятся в `TrackSnapshot.state`.
+Одна посылка = один `track_id`. Состояния хранятся в `TrackSnapshot.state` (`TrackState`).
+
+### 5a. Состояния в памяти (TrackState)
+
+```mermaid
+stateDiagram-v2
+    direction TB
+
+    [*] --> NEW: YOLO выдал track_id
+    NEW --> INDUCTED: inducted\n≥ min_track_length
+
+    INDUCTED --> SCAN_CORRECTION: bbox ≥ SCAN LINE
+
+    state SCAN_CORRECTION {
+        direction LR
+        [*] --> IDENTIFY: pyzbar / barcode_sim
+        IDENTIFY --> WMS_PRELIM: RoutingTable
+        WMS_PRELIM --> CHECK: conflict / low conf?
+        CHECK --> LLM_ARBITRATE: should_arbitrate
+        CHECK --> ROUTE_OK: нет спора
+        LLM_ARBITRATE --> ROUTE_OK: arbitrator_decision
+        ROUTE_OK --> [*]
+    }
+
+    note right of SCAN_CORRECTION
+        Подпроцесс внутри scan.process().
+        Отдельного TrackState нет —
+        события: scanned, arbitrator_decision.
+    end note
+
+    SCAN_CORRECTION --> SCANNED: маршрут зафиксирован
+    SCANNED --> SCHEDULED: scheduled\nCommandQueue
+
+    SCHEDULED --> DIVERTED: diverted\nимпульс применён
+    SCHEDULED --> SCHEDULED: actuator_fault miss\nпосылка едет дальше
+
+    DIVERTED --> [*]
+```
+
+| `TrackState` | Смысл | Ключевые события |
+|--------------|-------|------------------|
+| `NEW` | Трек только появился | — |
+| `INDUCTED` | Объект подтверждён | `inducted` |
+| *(SCAN_CORRECTION)* | *Логический подпроцесс scan* | `arbitrator_decision`? → `scanned` |
+| `SCANNED` | Маршрут зафиксирован | `scanned`, `no_read` |
+| `SCHEDULED` | Команда в очереди ПЛК | `scheduled` |
+| `DIVERTED` | Пушер отработал | `diverted` (+ `actuator_fault` weak/overshoot в payload) |
+
+### 5b. ASCII-схема (кратко)
 
 ```
                     ┌──────────┐
-                    │   NEW    │  YOLO впервые выдал track_id
+                    │   NEW    │
                     └────┬─────┘
-                         │ ≥5 кадров подряд (индукция)
+                         │ inducted
                          ▼
-                    ┌──────────┐     событие: inducted
-                    │ INDUCTED │  можно везти к скан-порталу
+                    ┌──────────┐
+                    │ INDUCTED │
                     └────┬─────┘
-                         │ центр bbox ≥ SCAN LINE
-                         │ (штрихкод + WMS + арбитр?)
+                         │ SCAN LINE
                          ▼
-                    ┌──────────┐     событие: scanned
-                    │ SCANNED  │  маршрут зафиксирован навсегда
-                    └────┬─────┘     (+ no_read если выбраковка)
-                         │ команда в очереди ПЛК
+              ┌──────────────────────┐
+              │ БЛОК КОРРЕКЦИИ       │
+              │ ① barcode · ② WMS   │
+              │ ③④ LLM? (опц.)      │
+              └──────────┬───────────┘
+                         │ scanned
                          ▼
-                    ┌──────────┐     событие: scheduled
-                    │SCHEDULED │  ждём кадр execute_frame
+                    ┌──────────┐
+                    │ SCANNED  │
                     └────┬─────┘
-                         │ execute_frame наступил
+                         │ scheduled
                          ▼
-                    ┌──────────┐     событие: diverted
-                    │ DIVERTED │  посылка отведена в зону
+                    ┌──────────┐     actuator_fault (miss)
+                    │SCHEDULED │──────────────────────────┐
+                    └────┬─────┘                          │
+                         │ diverted                       │ (остаётся SCHEDULED)
+                         ▼                                │
+                    ┌──────────┐◄─────────────────────────┘
+                    │ DIVERTED │
                     └──────────┘
 ```
 
@@ -170,9 +230,9 @@ EventBus.publish(event):
    - **кластер** (`by_cluster`);
    - иначе **CV-класс** (`by_class`) — fallback / demo PyBullet;
    - иначе **zone_reject**.
-4. **Конфликт:** штрихкод и CV отвечают на **разные вопросы**; если fallback-зоны не совпали → `barcode_cv_conflict`.
-5. **Арбитр** (если включён): низкий `confidence` или конфликт → Gemini смотрит фото crop.
-6. **Фиксация:** `state = SCANNED`, в журнал `scanned`, `track_id` в список «уже сканировали».
+4. **Конфликт:** при несовпадении fallback-зон → `barcode_cv_conflict` в metadata.
+5. **Блок коррекции (④):** `should_arbitrate` → `LLMArbitrator` → `arbitrator_decision`; иначе preliminary = финал.
+6. **Фиксация:** `state = SCANNED`, событие `scanned`.
 
 После этого маршрут **не меняется**, даже если YOLO на следующем кадре ошибся.
 
@@ -282,13 +342,31 @@ EventBus.publish(event):
 
 ---
 
-### `arbitrator_decision` — «LLM пересмотрел спорный случай»
+### `arbitrator_decision` — «LLM скорректировал маршрут»
 
-**Генератор:** `LLMArbitrator.arbitrate()`
+**Генератор:** `LLMArbitrator.arbitrate()` — **шаг ④** блока коррекции маршрута.
 
-**Файл:** `logs/arbitrator.jsonl` (отдельно от основного лога)
+**Файл:** `logs/arbitrator.jsonl` (отдельно от `events.jsonl`)
 
-**Смысл:** было предварительное решение WMS/CV, арбитр дал финал с объяснением.
+**Смысл:** было preliminary от WMS; арбитр вернул финальную `zone` + `reasoning`.
+
+**Триггеры (`should_arbitrate`):** `confidence < 0.55`; `barcode_cv_conflict`; (план) `barcode_misread`.
+
+**Что дальше:** финальный маршрут попадает в `scanned` → `scheduled` → актуатор.
+
+---
+
+### `actuator_fault` — «пушер не сработал»
+
+**Генератор:** `SimActuator.execute()` при `fault_sim` miss.
+
+**Смысл:** команда `scheduled` наступила, импульс **не подан**; `TrackState` остаётся `SCHEDULED` (не `DIVERTED`).
+
+```json
+{"event":"actuator_fault","track_id":17,"zone":"chute_a","fault":"miss","actuator":"cross-belt"}
+```
+
+**Блок коррекции исполнения (план):** отмена команды, повтор, триггер по ACTUATION LINE — см. [FAULT_MATRIX.md](FAULT_MATRIX.md).
 
 ---
 
@@ -322,21 +400,22 @@ EventBus.publish(event):
        └────────────► PositionTracker ──► inducted
                               │
                               ▼
-                        ScanStation ──► scanned, no_read
-                         │      │
-                    RoutingTable  LLMArbitrator ──► arbitrator.jsonl
-                         │
-                         ▼
-                  TimingController
-                         │
-                         ▼
-                   CommandQueue ◄── scheduled (main_loop)
-                         │
-                         ▼
-                    SimActuator ──► diverted
-                         │
-                         ▼
-              logs/events.jsonl  (EventLogger)
+                   ┌── ScanStation ──────────────────────┐
+                   │ ① barcode_decoder / barcode_sim    │
+                   │ ② RoutingTable (WMS preliminary)   │
+                   │ ③④ LLMArbitrator (коррекция)       │──► arbitrator.jsonl
+                   └──────────────┬────────────────────┘
+                                  ▼ scanned, no_read
+                         TimingController
+                                  │
+                                  ▼
+                   CommandQueue ◄── scheduled
+                                  │
+                                  ▼
+              SimActuator + fault_sim ──► diverted, actuator_fault
+                                  │
+                                  ▼
+                        logs/events.jsonl
 ```
 
 | Модуль | Роль | События |
@@ -352,7 +431,7 @@ EventBus.publish(event):
 | `planning/timing_controller.py` | ETA до пушера | — |
 | `planning/command_queue.py` | Очередь ПЛК | — |
 | `main_loop.py` | Связка всего | `scheduled` |
-| `wcs/actuator.py` | Толкатель | `diverted` |
+| `wcs/actuator.py` | Толкатель + fault_sim | `diverted`, `actuator_fault` |
 | `core/events.py` | Запись в JSONL | все |
 
 ---
@@ -390,7 +469,7 @@ pip install pyzbar
 Нет. Журнал для аудита и демо. Управление — прямые вызовы в `main_loop`.
 
 **Где штрихкод в PyBullet-демо?**  
-На кубах кодов нет → срабатывает **demo-fallback** по CV (`route_source: cv`). Это ограничение симулятора, не прод-политика. На видео с наклейками — `route_source: barcode`.
+Включён `barcode_sim` (`config/pybullet.yaml`): при спавне — случайный EAN `460`/`461`, на SCAN LINE подставляется чтение (`barcode_simulated: true`). Иногда — ошибочный префикс (`barcode_misread: true`). На видео с наклейками — только `pyzbar`.
 
 **chute_a — это тип A?**  
 Нет. Рукав = направление из WMS. Подробно: [BUSINESS_RULES.md](BUSINESS_RULES.md).
@@ -403,6 +482,8 @@ pip install pyzbar
 ## 12. Одна строка
 
 ```
-Кадр → YOLO → inducted → [SCAN: штрихкод → WMS] → scanned → scheduled → diverted
-         ↑ управление кодом          ↑ события пишутся в events.jsonl параллельно
+Кадр → YOLO → inducted → [SCAN: ①② WMS → ③④ арбитр?] → scanned → scheduled → diverted | actuator_fault
+         ↑ управление кодом                    ↑ события в events.jsonl + arbitrator.jsonl
 ```
+
+Диаграммы архитектуры: [ARCHITECTURE.md](../ARCHITECTURE.md) §2a–2b.

@@ -31,6 +31,25 @@ spawner:
   scale_sphere: 0.25
   kinds: [box, sphere]
 
+# Эмуляция скан-портала (PyBullet: на кубах нет EAN-текстур)
+barcode_sim:
+  enabled: true
+  prefixes: ["460", "461"]     # как by_barcode_prefix в routes.yaml
+  misread_probability: 0.08    # доля ошибочного чтения (460↔461)
+
+# Случайные отказы линии (только PyBullet-демо)
+fault_sim:
+  enabled: true
+  belt_slip:
+    assign_probability: 0.25   # доля посылок с проскальзыванием
+    speed_factor_range: [0.82, 1.12]
+  actuator:
+    miss_probability: 0.06     # пушер не сработал
+    weak_push_probability: 0.05
+    weak_force_factor: 0.35    # слабый толчок → промах мимо рукава
+    overshoot_probability: 0.04
+    overshoot_force_factor: 1.75  # перелёт → сброс с ленты
+
 actuator:
   force_y: 12.0                # импульс cross-belt
 

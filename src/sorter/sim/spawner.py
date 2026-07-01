@@ -4,6 +4,8 @@ import random
 from dataclasses import dataclass
 from typing import Callable
 
+from sorter.sim.barcode_simulator import generate_barcode
+from sorter.sim.fault_simulator import FaultSimulator
 from sorter.sim.metrics import RemovedItem
 
 
@@ -12,6 +14,8 @@ class SpawnedItem:
     body_id: int
     kind: str
     spawned_step: int
+    barcode: str | None = None
+    belt_slip_factor: float = 1.0
 
 
 class AutomaticSpawner:
@@ -32,6 +36,8 @@ class AutomaticSpawner:
         kinds: list[str] | None = None,
         cleanup_x: float = 3.5,
         cleanup_z: float = 0.05,
+        barcode_prefixes: list[str] | None = None,
+        fault_sim: FaultSimulator | None = None,
     ) -> None:
         self._spawn_fn = spawn_fn
         self._remove_fn = remove_fn
@@ -43,6 +49,8 @@ class AutomaticSpawner:
         self.kinds = kinds or ["box", "sphere"]
         self.cleanup_x = cleanup_x
         self.cleanup_z = cleanup_z
+        self.barcode_prefixes = barcode_prefixes or ["460", "461"]
+        self._fault_sim = fault_sim
         self.active: list[SpawnedItem] = []
         self.total_spawned = 0
         self.total_removed = 0
@@ -55,7 +63,21 @@ class AutomaticSpawner:
             y_off = random.uniform(*self.y_offset_range)
             pos = [self.spawn_x, y_off, self.spawn_z]
             body_id = self._spawn_fn(kind, pos, step)
-            item = SpawnedItem(body_id=body_id, kind=kind, spawned_step=step)
+            barcode = (
+                generate_barcode(self.barcode_prefixes) if self.barcode_prefixes else None
+            )
+            slip = (
+                self._fault_sim.roll_belt_slip_factor()
+                if self._fault_sim is not None
+                else 1.0
+            )
+            item = SpawnedItem(
+                body_id=body_id,
+                kind=kind,
+                spawned_step=step,
+                barcode=barcode,
+                belt_slip_factor=slip,
+            )
             self.active.append(item)
             self.total_spawned += 1
             created.append(item)
@@ -107,6 +129,18 @@ class AutomaticSpawner:
             if item.body_id == body_id:
                 return item.kind
         return None
+
+    def barcode_for(self, body_id: int) -> str | None:
+        for item in self.active:
+            if item.body_id == body_id:
+                return item.barcode
+        return None
+
+    def slip_factor_for(self, body_id: int) -> float:
+        for item in self.active:
+            if item.body_id == body_id:
+                return item.belt_slip_factor
+        return 1.0
 
     def kind_for_removed(self, body_id: int, removed_batch: list[RemovedItem]) -> str | None:
         for r in removed_batch:

@@ -34,6 +34,8 @@ class SortMetrics:
     yolo_frames: int = 0
     yolo_detections: int = 0
     no_read: int = 0
+    actuator_miss: int = 0
+    actuator_faults: int = 0
     start_time: float = field(default_factory=time.time)
     _diverted_bodies: set[int] = field(default_factory=set)
     _scanned_bodies: set[int] = field(default_factory=set)
@@ -116,6 +118,12 @@ class SortMetrics:
     def record_no_read(self) -> None:
         self.no_read += 1
 
+    def record_actuator_miss(self) -> None:
+        self.actuator_miss += 1
+
+    def record_actuator_fault(self) -> None:
+        self.actuator_faults += 1
+
     def on_item_removed(self, item: RemovedItem) -> None:
         """
         Вызывается при cleanup спавнера.
@@ -159,6 +167,7 @@ class SortMetrics:
             f"AI Accuracy: {self.ai_accuracy:.1f}%  |  AI Missed: {self.ai_missed}",
             f"Scanned: {self.scanned}  Scheduled: {self.scheduled}  Diverted: {self.diverted}",
             f"Divert accuracy: {self.divert_accuracy:.1f}%  |  No-read: {self.no_read}",
+            f"Actuator miss: {self.actuator_miss}  |  Faults (weak/overshoot): {self.actuator_faults}",
         ]
 
     def draw_panel(self, frame: np.ndarray) -> np.ndarray:

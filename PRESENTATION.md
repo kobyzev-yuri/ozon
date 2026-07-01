@@ -27,8 +27,10 @@
 ## Слайд 2 — Наше решение (одна схема)
 
 ```
-FIELD (Digital Twin)  →  WCS (CV + трекинг + ПЛК)  →  WMS (маршрут)  →  Актуатор
-     кадры                    ETA + очередь              routes.yaml         зоны A/B/C
+FIELD  →  WCS (CV + трекинг + ПЛК)  →  WMS  →  Актуатор
+              │
+              └─ ScanStation: блок коррекции маршрута
+                    ① barcode  ② WMS  ③④ LLM-арбитр?
 ```
 
 **Ключ:** разделение ответственности как на проде (см. [BUSINESS_RULES.md](docs/BUSINESS_RULES.md)):
@@ -98,9 +100,11 @@ SCAN LINE ──── Δx ──── ACTUATION LINE ──── зона
 
 ---
 
-## Слайд 7 — LLM Arbitrator (оригинальный ход)
+## Слайд 7 — LLM Arbitrator (блок коррекции маршрута)
 
-**Не замена YOLO — второй уровень:**
+**Место:** шаги ③–④ внутри `ScanStation` на SCAN LINE — см. [ARCHITECTURE.md](ARCHITECTURE.md) §2a.
+
+**Не замена YOLO — корректор спорного маршрута:**
 
 | Триггер | Действие |
 |---------|----------|

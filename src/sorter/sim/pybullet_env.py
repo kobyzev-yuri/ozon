@@ -8,6 +8,7 @@ import numpy as np
 import yaml
 
 from sorter.field.frame_source import FrameSource
+from sorter.sim.fault_simulator import FaultSimulator
 from sorter.sim.spawner import AutomaticSpawner, SpawnedItem
 
 try:
@@ -55,6 +56,7 @@ class PyBulletConveyor(FrameSource):
         self._physics_hz = int(self.cfg.get("physics_hz", 240))
         self._step = 0
         self._diverted: set[int] = set()
+        self.fault_sim = FaultSimulator(self.cfg.get("fault_sim", {}))
 
         mode = p.GUI if self.gui else p.DIRECT
         self._client = p.connect(mode)
@@ -67,6 +69,10 @@ class PyBulletConveyor(FrameSource):
         self._zone_markers()
 
         sp = self.cfg["spawner"]
+        bs = self.cfg.get("barcode_sim", {})
+        barcode_prefixes = (
+            list(bs["prefixes"]) if bs.get("enabled", False) else None
+        )
         self.spawner = AutomaticSpawner(
             spawn_fn=self._spawn_body,
             remove_fn=self._remove_body,
@@ -78,6 +84,8 @@ class PyBulletConveyor(FrameSource):
             kinds=list(sp.get("kinds", ["box", "sphere"])),
             cleanup_x=float(lines["cleanup_x"]),
             cleanup_z=float(lines["cleanup_z"]),
+            barcode_prefixes=barcode_prefixes,
+            fault_sim=self.fault_sim if self.fault_sim.enabled else None,
         )
 
     def _build_conveyor(self) -> int:
@@ -139,7 +147,6 @@ class PyBulletConveyor(FrameSource):
 
     def _apply_conveyor_physics(self) -> None:
         half = self.conveyor_length / 2
-        vel = [self.belt_speed, 0, 0]
         for body_id in self.spawner.body_ids():
             try:
                 pos, _ = p.getBasePositionAndOrientation(body_id)
@@ -147,6 +154,8 @@ class PyBulletConveyor(FrameSource):
                     self.conveyor_height - 0.05 < pos[2] < self.conveyor_height + 0.5
                     and -half < pos[0] < half
                 ):
+                    slip = self.spawner.slip_factor_for(body_id)
+                    vel = [self.belt_speed * slip, 0, 0]
                     p.resetBaseVelocity(body_id, linearVelocity=vel)
             except Exception:
                 pass
@@ -198,11 +207,16 @@ class PyBulletConveyor(FrameSource):
             projs.append(BodyProjection(body_id=body_id, cx=cx, cy=cy, world_x=wx))
         return projs
 
-    def divert(self, track_id: int, direction: str | None = None) -> None:
+    def divert(
+        self,
+        track_id: int,
+        direction: str | None = None,
+        force_scale: float = 1.0,
+    ) -> bool:
         """track_id = PyBullet body_id. Cross-belt импульс по Y."""
-        if track_id in self._diverted:
-            return
-        force_y = float(self.cfg["actuator"].get("force_y", 12.0))
+        if track_id in self._diverted or force_scale <= 0:
+            return False
+        force_y = float(self.cfg["actuator"].get("force_y", 12.0)) * force_scale
         if direction == "left":
             force_y = abs(force_y)
         elif direction == "right":
@@ -219,8 +233,9 @@ class PyBulletConveyor(FrameSource):
                 flags=p.WORLD_FRAME,
             )
             self._diverted.add(track_id)
+            return True
         except Exception:
-            pass
+            return False
 
     def physics_step(self) -> int:
         return self._step
