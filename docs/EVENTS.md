@@ -13,7 +13,7 @@
 | **Вопрос** | Что за посылка? | Куда везти? |
 | **Источник** | YOLO → поле `class` | WMS → поле `zone` |
 | **Примеры** | `box`, `sphere`, `bag` | `chute_a`, `chute_b`, `zone_reject` |
-| **На проде** | ОВХ, метрики, fallback | **Штрихкод / кластер заказа** |
+| **На проде** | ОВХ, метрики, fallback | **Штрихкод → WMS → cluster → рукав** |
 
 `chute_a` — **не** «тип A товара». Один `box` может уехать в `chute_a` или `chute_b` — зависит от штрихкода.
 
@@ -226,9 +226,9 @@ stateDiagram-v2
 1. **Проверки:** состояние = `INDUCTED`, этот `track_id` ещё не сканировали, bbox пересёк линию.
 2. **Штрихкод:** вырезаем кусок кадра по bbox → `pyzbar` → строка `"460..."` или пусто (`barcode_decoder.py`).
 3. **WMS:** `RoutingTable.resolve()` — приоритет (см. [BUSINESS_RULES.md](BUSINESS_RULES.md)):
-   - **штрихкод** → рукав (`by_barcode_prefix`) — основной путь на проде;
-   - **кластер** (`by_cluster`);
-   - иначе **CV-класс** (`by_class`) — fallback / demo PyBullet;
+   - **штрихкод** → рукав (`by_barcode_prefix`) — mock схлопывает «код → cluster → рукав»;
+   - **кластер** (`by_cluster`) — если WMS уже вернул `cluster` после lookup по коду (`route_source: wms`; в демо пока не вызывается);
+   - иначе **CV-класс** (`by_class`) — fallback;
    - иначе **zone_reject**.
 4. **Конфликт:** при несовпадении fallback-зон → `barcode_cv_conflict` в metadata.
 5. **Блок коррекции (④):** `should_arbitrate` → `LLMArbitrator` → `arbitrator_decision`; иначе preliminary = финал.

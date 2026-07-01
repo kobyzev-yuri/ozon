@@ -52,7 +52,7 @@ src/sorter/
 ## Конфигурация
 
 - `config/pipeline.yaml` — геометрия линий, YOLO, arbitrator
-- `config/routes.yaml` — Mock WMS: штрихкод/кластер → рукав; CV — fallback (см. [BUSINESS_RULES.md](docs/BUSINESS_RULES.md))
+- `config/routes.yaml` — Mock WMS: штрихкод → cluster → рукав (`by_cluster` — шаг после lookup; см. [BUSINESS_RULES.md](docs/BUSINESS_RULES.md))
 
 ## LLM Arbitrator (ProxyAPI + Gemini Vision)
 

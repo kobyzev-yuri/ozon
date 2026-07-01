@@ -9,7 +9,13 @@ from sorter.core.types import RouteDecision
 
 
 class RoutingTable:
-    """Mock WMS: правила маршрутизации, не нейросеть."""
+    """
+    Mock WMS: правила маршрутизации, не нейросеть.
+
+    Прод-цепочка: штрихкод → WMS lookup → cluster → рукав.
+    - by_barcode_prefix: упрощение (код → рукав), route_source=barcode
+    - by_cluster: шаг «cluster → рукав», когда cluster уже из WMS, route_source=wms
+    """
 
     def __init__(self, routes_path: str | Path = "config/routes.yaml") -> None:
         with Path(routes_path).open(encoding="utf-8") as fh:

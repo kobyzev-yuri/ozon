@@ -76,7 +76,7 @@ flowchart TB
 |------|-----------------|--------|
 | **Field** | Кадры, физика ленты, сила актуатора | `field/`, `sim/` |
 | **WCS** | CV, трекинг, тайминг, очередь команд | `perception/`, `planning/`, `wcs/` |
-| **WMS** | Правила «куда сортировать» (штрихкод / кластер; CV — fallback) | `wms/routing_table.py` |
+| **WMS** | Правила «куда»: штрихкод → cluster → рукав; CV — fallback | `wms/routing_table.py` |
 | **Коррекция маршрута** | Спорный scan → LLM или WMS preliminary | `scan_station.py`, `llm_arbitrator.py` |
 | **Коррекция исполнения** | Проскальзывание, сбой пушера (сим) | `fault_simulator.py`, `actuator.py` |
 
