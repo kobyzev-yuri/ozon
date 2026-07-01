@@ -1,224 +1,341 @@
-# Автомат состояний и маршрутизация (актуально на сейчас)
+# События и состояния: понятное описание
 
-> Полная картина: что происходит на ленте, какие состояния у трека, какие события в `events.jsonl`,  
-> **где и как читается штрихкод** и как WMS выбирает зону.
-
----
-
-## 1. Два уровня: трек (FSM) и события (лог)
-
-| Уровень | Где живёт | Назначение |
-|---------|-----------|------------|
-| **TrackState** | `TrackSnapshot.state` в RAM | Автомат одной посылки по `track_id` |
-| **Event** | `logs/events.jsonl` | Аудит для WCS/WMS (что сообщить «наверх») |
-
-Не каждый переход FSM пишет событие, но **все ключевые бизнес-шаги** — да.
+> Для кого: жюри, разработчики команды, демо.  
+> Файл лога: `logs/events.jsonl` (по одной JSON-строке на событие).
 
 ---
 
-## 2. Автомат состояний трека (полный)
+## 1. Словарь терминов (по-русски)
 
-```mermaid
-stateDiagram-v2
-    [*] --> NEW: YOLO + ByteTrack\nпервый кадр с track_id
-
-    NEW --> INDUCTED: ≥ min_track_length кадров\n(InductionFilter)
-    INDUCTED --> SCANNED: bbox.cx ≥ SCAN LINE\nштрихкод + WMS + опц. арбитр
-
-    SCANNED --> SCHEDULED: CommandQueue\nприняла DivertCommand
-  SCHEDULED --> DIVERTED: execute_frame\nSimActuator
-
-    SCANNED --> REJECTED: zone_reject\n(опционально, тот же scan)
-
-    NEW --> [*]: трек потерян\n(ID исчез из кадра)
-    INDUCTED --> [*]: потеря трека
-    SCANNED --> [*]: потеря трека\n(команда в очереди остаётся!)
-    DIVERTED --> [*]: объект снят с ленты
-```
-
-### Таблица состояний
-
-| State | Вход | Что делает система | Событие в JSONL |
-|-------|------|-------------------|-----------------|
-| **NEW** | Появился `track_id` | YOLO bbox, ByteTrack; ещё не сортируем | — |
-| **INDUCTED** | Трек ≥5 кадров | Сингуляция: не мигающий шум | **`inducted`** |
-| **SCANNED** | Центр bbox за SCAN LINE | **Штрихкод + WMS + арбитр** | **`scanned`** (+ `no_read` если reject без кода) |
-| **SCHEDULED** | Очередь приняла команду | ETA до актуатора посчитан | **`scheduled`** |
-| **DIVERTED** | Наступил `execute_frame` | Cross-belt / force | **`diverted`** |
-| **REJECTED** | `zone_reject` | Сброс в ручную выбраковку | через `scanned` / `no_read` |
-
-**Параллельно:** `CommandQueue` хранит `{track_id, zone, execute_at_frame}` — это «память ПЛК», не отдельный state в enum, но логически между SCANNED и DIVERTED.
+| Термин | Что это простыми словами |
+|--------|--------------------------|
+| **Посылка / объект** | Одна коробка или предмет на ленте |
+| **Кадр** | Один снимок с камеры (номер `frame` в логе) |
+| **bbox** | Прямоугольник вокруг объекта на кадре (где YOLO его «увидел») |
+| **track_id** | Номер посылки в трекере (как временный паспорт, пока едет по ленте) |
+| **YOLO** | Нейросеть: находит объекты и их класс (коробка, сфера…) |
+| **ByteTrack** | Алгоритм: следит, чтобы один и тот же объект сохранял один `track_id` между кадрами |
+| **Индукция** | Проверка: объект реальный, а не случайный «миг» детектора (≥5 кадров подряд) |
+| **SCAN LINE** | Виртуальная линия на кадре (~45% ширины): «скан-портал», здесь читают код и назначают маршрут |
+| **Штрихкод** | EAN/Code128 на наклейке; читается библиотекой **pyzbar** в области bbox |
+| **WMS** | Система «куда везти»: у нас — файл `routes.yaml` + класс `RoutingTable` |
+| **Маршрут / zone** | Целевой рукав: `chute_a`, `chute_b`, `zone_reject` (выбраковка) |
+| **WCS / ПЛК** | Логика «когда толкнуть»: очередь команд и расчёт времени до актуатора |
+| **ACTUATION LINE** | Линия срабатывания пушера (~72% ширины кадра) |
+| **Актуатор** | Толкатель / cross-belt: в симуляторе — `applyExternalForce` в PyBullet |
+| **Арбитр (LLM)** | Gemini по фото crop — только для спорных случаев (низкая уверенность YOLO) |
+| **Событие (event)** | Запись в журнал: что и когда произошло (для аудита и KPI) |
+| **Состояние (state)** | Внутренний этап жизни посылки в памяти программы (`NEW` → … → `DIVERTED`) |
 
 ---
 
-## 3. Геометрия ленты
+## 2. Два слоя: состояние и событие
+
+Путать их не нужно:
+
+| | **Состояние (TrackState)** | **Событие (Event)** |
+|--|---------------------------|---------------------|
+| **Где** | В оперативной памяти (`TrackSnapshot`) | В файле `logs/events.jsonl` |
+| **Зачем** | Программа решает, что делать дальше | Журнал для человека, жюри, отладки |
+| **Пример** | `state = SCANNED` | `{"event": "scanned", ...}` |
+
+**Важно:** программа **не читает** свой же `events.jsonl` для управления лентой.  
+Сначала выполняется логика (YOLO → scan → очередь → актуатор), **параллельно** в журнал пишется событие.
 
 ```
-  ←── движение ──────────────────────────────────────────────────→
-
-  spawn          камера (весь кадр)     │ SCAN LINE      │ ACTUATION LINE
-       YOLO + ByteTrack каждый кадр    │  (~45% ширины) │  (~72%)
-                                       │                │
-                                       ▼                ▼
-                              pyzbar в crop bbox    CommandQueue.fire
-                              + WMS resolve         SimActuator
+  Управление (прямые вызовы функций)     Журнал (побочный эффект)
+  ─────────────────────────────────      ──────────────────────────
+  detector.detect()                      
+  tracker.update()          ──────────►  inducted (если готов)
+  scan.process()            ──────────►  scanned, no_read
+  timing.schedule_divert()  ──────────►  scheduled
+  actuator.execute()        ──────────►  diverted
 ```
-
-**Условие scan:** `bbox.cx >= scan_line_px` (центр объекта пересёк линию).
-
-**Код:** `ScanStation.process()`, `config/pipeline.yaml` → `scan_line_ratio`.
 
 ---
 
-## 4. SCAN LINE — что происходит по шагам
+## 3. Кто генерирует события и где в коде
 
-Это **единственное место**, где определяется маршрут посылки.
+| Событие | Кто создаёт | Файл | Когда срабатывает |
+|---------|-------------|------|-------------------|
+| **`inducted`** | `PositionTracker` | `planning/position_tracker.py` | Трек прожил ≥ `min_track_length` кадров → `NEW` → `INDUCTED` |
+| **`scanned`** | `ScanStation` | `perception/scan_station.py` | Центр bbox пересёк SCAN LINE; маршрут назначен |
+| **`no_read`** | `ScanStation` | `perception/scan_station.py` | После scan: нет штрихкода и зона = `zone_reject` |
+| **`scheduled`** | `main_loop` / `sim/runner.py` | `main_loop.py` | После scan: команда попала в `CommandQueue` |
+| **`diverted`** | `SimActuator` | `wcs/actuator.py` | Наступил кадр `execute_frame` — пушер сработал |
+| **`arbitrator_decision`** | `LLMArbitrator` | `arbitrage/llm_arbitrator.py` | Внутри scan: спорный кейс, ответ Gemini |
 
-```
-Кадр N, track в состоянии INDUCTED, cx ≥ SCAN LINE:
+Все они вызывают **`event_bus.publish(Event(...))`**.
 
-  ┌─ 1. ШТРИХКОД (скан-портал) ─────────────────────────────┐
-  │  crop = bbox на кадре                                    │
-  │  pyzbar.decode(gray) → "4601234567890" или None          │
-  │  код: perception/barcode_decoder.py                      │
-  └──────────────────────────────────────────────────────────┘
-                          ↓
-  ┌─ 2. WMS (MockWMS) ──────────────────────────────────────┐
-  │  RoutingTable.resolve(barcode, class_name, confidence)   │
-  │  ПРИОРИТЕТ:                                              │
-  │    1) barcode prefix → zone (routes.yaml by_barcode)     │
-  │    2) cluster → zone                                     │
-  │    3) YOLO class → zone (by_class)                       │
-  │    4) default → zone_reject                              │
-  └──────────────────────────────────────────────────────────┘
-                          ↓
-  ┌─ 3. Конфликт barcode ↔ CV? ─────────────────────────────┐
-  │  cv_zone = resolve(только class)                         │
-  │  final_zone = resolve(barcode + class)                   │
-  │  если barcode есть и cv_zone ≠ final_zone:               │
-  │     metadata.barcode_cv_conflict = true                  │
-  └──────────────────────────────────────────────────────────┘
-                          ↓
-  ┌─ 4. LLM-арбитр (если enabled) ──────────────────────────┐
-  │  если conf < 0.55 ИЛИ barcode_cv_conflict:               │
-  │     Gemini + crop → финальная zone                       │
-  │  иначе: маршрут из шага 2                               │
-  └──────────────────────────────────────────────────────────┘
-                          ↓
-  state = SCANNED, событие scanned, _scanned.add(track_id)
+### Как устроена шина событий
+
+```python
+# core/events.py
+
+EventBus.publish(event):
+    1. EventLogger.emit(event)  →  строка в logs/events.jsonl
+    2. опционально: подписчики subscribe()  (сейчас не используются)
 ```
 
-**После scan** маршрут для этого `track_id` **не пересчитывается** (даже если YOLO на следующем кадре ошибся).
+То есть **обработка ленты** идёт обыным кодом Python, а **события** — это аудит-WCS «что мы сделали».
 
 ---
 
-## 5. Маршрутизация и штрихкод — примеры
+## 4. Главный цикл: что происходит каждый кадр
 
-`config/routes.yaml`:
+Файл: `main_loop.py` (то же в `sim/runner.py` для PyBullet).
 
-```yaml
-by_barcode_prefix:
-  "460": chute_a
-  "461": chute_b
-by_class:
-  box: chute_a
-  sphere: chute_b
+```
+┌─────────────────────────────────────────────────────────────┐
+│  КАЖДЫЙ КАДР (frame_idx)                                    │
+├─────────────────────────────────────────────────────────────┤
+│  1. frame = источник.read()     # видео или PyBullet-камера │
+│  2. detections = YOLO.track()   # bbox, class, track_id      │
+│  3. snapshots = tracker.update() # состояния + inducted      │
+│  4. scan.process()               # SCAN LINE, штрихкод, WMS │
+│       └─► scanned / no_read                                  │
+│  5. timing.schedule_divert()     # ETA → CommandQueue        │
+│       └─► scheduled                                          │
+│  6. queue.pop_due(frame_idx)     # пора ли толкать?           │
+│       └─► actuator.execute() → diverted                      │
+│  7. overlay на экран + метрики                               │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-| Штрихкод | YOLO class | conf | Итог zone | route_source | Почему |
-|----------|------------|------|-----------|--------------|--------|
-| `460998...` | sphere | 0.92 | **chute_a** | `barcode` | Префикс 460 важнее класса |
-| `461112...` | box | 0.88 | **chute_b** | `barcode` | Префикс 461 |
-| — | box | 0.88 | **chute_a** | `cv` | Нет кода → только YOLO |
-| — | unknown | 0.30 | **zone_reject** | `reject` | Нет правила + **`no_read`** |
-| `460...` | sphere | 0.90 | chute_a | `barcode` | Конфликт CV (sphere→B) **игнорируется** WMS; арбитр может вызваться |
+Ни один шаг не ждёт записи в файл — запись идёт **в момент** действия.
 
-### Событие `scanned` с штрихкодом
+---
+
+## 5. Автомат состояний посылки
+
+Одна посылка = один `track_id`. Состояния хранятся в `TrackSnapshot.state`.
+
+```
+                    ┌──────────┐
+                    │   NEW    │  YOLO впервые выдал track_id
+                    └────┬─────┘
+                         │ ≥5 кадров подряд (индукция)
+                         ▼
+                    ┌──────────┐     событие: inducted
+                    │ INDUCTED │  можно везти к скан-порталу
+                    └────┬─────┘
+                         │ центр bbox ≥ SCAN LINE
+                         │ (штрихкод + WMS + арбитр?)
+                         ▼
+                    ┌──────────┐     событие: scanned
+                    │ SCANNED  │  маршрут зафиксирован навсегда
+                    └────┬─────┘     (+ no_read если выбраковка)
+                         │ команда в очереди ПЛК
+                         ▼
+                    ┌──────────┐     событие: scheduled
+                    │SCHEDULED │  ждём кадр execute_frame
+                    └────┬─────┘
+                         │ execute_frame наступил
+                         ▼
+                    ┌──────────┐     событие: diverted
+                    │ DIVERTED │  посылка отведена в зону
+                    └──────────┘
+```
+
+**Потеря трека** (объект пропал с кадра): состояние исчезает из памяти; команда в очереди может остаться — см. [ERROR_CASES.md](ERROR_CASES.md).
+
+---
+
+## 6. SCAN LINE — сердце маршрутизации
+
+Единственное место, где решается **куда** везти посылку.
+
+### Шаг за шагом (`ScanStation.process`)
+
+1. **Проверки:** состояние = `INDUCTED`, этот `track_id` ещё не сканировали, bbox пересёк линию.
+2. **Штрихкод:** вырезаем кусок кадра по bbox → `pyzbar` → строка `"460..."` или пусто (`barcode_decoder.py`).
+3. **WMS:** `RoutingTable.resolve()` — приоритет:
+   - сначала **штрихкод** (`routes.yaml` → `by_barcode_prefix`);
+   - иначе **класс YOLO** (`by_class`);
+   - иначе **zone_reject**.
+4. **Конфликт:** если код и CV дают разные зоны → флаг `barcode_cv_conflict`.
+5. **Арбитр** (если включён): низкий `confidence` или конфликт → Gemini смотрит фото crop.
+6. **Фиксация:** `state = SCANNED`, в журнал `scanned`, `track_id` в список «уже сканировали».
+
+После этого маршрут **не меняется**, даже если YOLO на следующем кадре ошибся.
+
+### Примеры маршрута
+
+| Штрихкод | Класс YOLO | Итоговая зона | Поле `route_source` |
+|----------|------------|---------------|---------------------|
+| `460…` | sphere | chute_a | `barcode` |
+| нет | box | chute_a | `cv` |
+| нет | неизвестный | zone_reject | `reject` + событие `no_read` |
+
+---
+
+## 7. Описание каждого события в логе
+
+### `inducted` — «посылка готова к сортировке»
+
+**Генератор:** `PositionTracker.update()`
+
+**Смысл:** трек не мигает, объект считаем реальным.
+
+```json
+{"event": "inducted", "frame": 85, "track_id": 17, "class": "box", "track_length": 5}
+```
+
+**Что делает код дальше:** ждёт пересечения SCAN LINE.
+
+---
+
+### `scanned` — «на скан-портале определили маршрут»
+
+**Генератор:** `ScanStation.process()`
+
+**Смысл:** штрихкод и/или YOLO + WMS → назначена зона.
 
 ```json
 {
   "event": "scanned",
   "frame": 245,
   "track_id": 17,
-  "class": "sphere",
-  "confidence": 0.90,
+  "class": "box",
+  "confidence": 0.91,
   "barcode": "4601234567890",
   "barcode_read": true,
   "zone": "chute_a",
   "route_source": "barcode",
-  "reason": "barcode prefix 460",
-  "cv_zone": "chute_b",
-  "barcode_zone": "chute_a"
+  "reason": "barcode prefix 460"
 }
 ```
 
-Поля `cv_zone` / `barcode_zone` — только при конфликте.
+**Что делает код дальше:** `main_loop` вызывает `timing.schedule_divert()` → очередь ПЛК.
 
 ---
 
-## 6. Все события JSONL
+### `no_read` — «не смогли идентифицировать»
 
-| event | Когда | Ключевые поля |
-|-------|-------|---------------|
-| **`inducted`** | NEW → INDUCTED | `track_id`, `class`, `track_length` |
-| **`scanned`** | SCAN LINE | `barcode`, `barcode_read`, `class`, `confidence`, `zone`, `route_source` |
-| **`no_read`** | scan + нет barcode + zone_reject | `track_id`, `class`, `confidence` |
-| **`scheduled`** | после scan | `execute_frame`, `eta_frames`, `zone` |
-| **`diverted`** | актуатор | `zone`, `actuator`, `direction` |
-| **`arbitrator_decision`** | внутри scan (спор) | `logs/arbitrator.jsonl`, `preliminary`, `final` |
+**Генератор:** `ScanStation` (вместе со `scanned` на reject)
+
+**Смысл:** нет штрихкода и нет подходящего класса → ручная выбраковка.
+
+```json
+{"event": "no_read", "frame": 300, "track_id": 12, "class": "unknown", "confidence": 0.22}
+```
 
 ---
 
-## 7. Живой сценарий A → Z (штрихкод + CV)
+### `scheduled` — «ПЛК запланировал толчок»
 
-**Коробка с EAN `460…`, YOLO стабилен, track_id=17**
+**Генератор:** `main_loop.py` после успешного `schedule_divert()`
 
-| Кадр | State | Событие / действие |
-|------|-------|-------------------|
-| 80 | NEW | YOLO: box, conf 0.91 |
-| 85 | INDUCTED | `inducted` track_length=5 |
-| 120–244 | INDUCTED | едет к SCAN LINE |
-| **245** | SCANNED | pyzbar → `4601234567890`; WMS → chute_a (`barcode`) |
-| 245 | SCHEDULED | `scheduled` execute_frame=312 |
-| 246–311 | SCHEDULED | ждём ACTUATION |
-| **312** | DIVERTED | `diverted` cross-belt left |
+**Смысл:** посылка доедет до актуатора примерно через `eta_frames` кадров.
+
+```json
+{
+  "event": "scheduled",
+  "frame": 245,
+  "track_id": 17,
+  "zone": "chute_a",
+  "execute_frame": 312,
+  "eta_frames": 67
+}
+```
+
+**Что делает код дальше:** каждый кадр `CommandQueue.pop_due(frame_idx)` проверяет, не пора ли.
+
+---
+
+### `diverted` — «актуатор сработал»
+
+**Генератор:** `SimActuator.execute()`
+
+**Смысл:** посылку отвели в зону (в PyBullet — сила на объект).
+
+```json
+{
+  "event": "diverted",
+  "frame": 312,
+  "track_id": 17,
+  "zone": "chute_a",
+  "actuator": "cross-belt",
+  "direction": "left"
+}
+```
+
+**Что делает код дальше:** для этого `track_id` повторный divert не выполняется (`diverted` set).
+
+---
+
+### `arbitrator_decision` — «LLM пересмотрел спорный случай»
+
+**Генератор:** `LLMArbitrator.arbitrate()`
+
+**Файл:** `logs/arbitrator.jsonl` (отдельно от основного лога)
+
+**Смысл:** было предварительное решение WMS/CV, арбитр дал финал с объяснением.
+
+---
+
+## 8. Полный пример: от появления до сброса
+
+Коробка, `track_id=17`, штрихкод `460…`, YOLO стабилен.
+
+| Кадр | Состояние | Модуль | Событие |
+|------|-----------|--------|---------|
+| 80 | NEW | `YoloDetector` | — |
+| 85 | INDUCTED | `PositionTracker` | `inducted` |
+| 245 | SCANNED | `ScanStation` | `scanned` |
+| 245 | SCHEDULED | `TimingController` + `main_loop` | `scheduled` |
+| 312 | DIVERTED | `SimActuator` | `diverted` |
 
 ```jsonl
 {"event":"inducted","track_id":17,"frame":85,"class":"box","track_length":5}
-{"event":"scanned","track_id":17,"frame":245,"class":"box","confidence":0.91,"barcode":"4601234567890","barcode_read":true,"zone":"chute_a","route_source":"barcode"}
+{"event":"scanned","track_id":17,"frame":245,"barcode":"4601234567890","barcode_read":true,"zone":"chute_a","route_source":"barcode","confidence":0.91,"class":"box"}
 {"event":"scheduled","track_id":17,"frame":245,"execute_frame":312,"eta_frames":67,"zone":"chute_a"}
 {"event":"diverted","track_id":17,"frame":312,"zone":"chute_a","actuator":"cross-belt","direction":"left"}
 ```
 
 ---
 
-## 8. Сценарий: штрихкод vs YOLO + арбитр
+## 9. Схема модулей и событий
 
-| Кадр | Что происходит |
-|------|----------------|
-| 248 | INDUCTED #42, YOLO: box conf 0.48, pyzbar: `461…` |
-| 248 | WMS: barcode → **chute_b**; cv alone → chute_a; **conflict** |
-| 248 | conf < 0.55 → **арбитр** смотрит crop (Gemini) |
-| 248 | final: chute_b, `route_source=llm_arbitrator` или оставляет barcode |
-| 248 | `scanned` + `arbitrator.jsonl` |
-| 310 | `diverted` chute_b |
+```
+  FrameSource          YoloDetector
+  (видео/PyBullet)          │
+       │                    ▼
+       └────────────► PositionTracker ──► inducted
+                              │
+                              ▼
+                        ScanStation ──► scanned, no_read
+                         │      │
+                    RoutingTable  LLMArbitrator ──► arbitrator.jsonl
+                         │
+                         ▼
+                  TimingController
+                         │
+                         ▼
+                   CommandQueue ◄── scheduled (main_loop)
+                         │
+                         ▼
+                    SimActuator ──► diverted
+                         │
+                         ▼
+              logs/events.jsonl  (EventLogger)
+```
 
-Арбитр **не склеивает** track_id — только текущий crop и metadata.
-
----
-
-## 9. Сценарий: ID-switch (ограничение ByteTrack)
-
-| Кадр | track_id | State | Проблема |
-|------|----------|-------|----------|
-| 245 | 17 | SCANNED + SCHEDULED | норма |
-| 260 | — | потеря | ByteTrack потерял объект |
-| 270 | 23 | INDUCTED | **новый ID**, та же коробка |
-| 312 | 17 | DIVERTED | команда была на **17** |
-
-**Истина после scan:** маршрут привязан к `track_id` в момент scan.  
-**На проде:** штрихкод = источник истины; трек — только до scan.  
-**В PyBullet:** `track_id` часто = `body_id` (стабильнее).
+| Модуль | Роль | События |
+|--------|------|---------|
+| `field/frame_source.py` | Картинка с ленты | — |
+| `perception/detector.py` | YOLO + ByteTrack | — |
+| `field/induction.py` | Фильтр зазоров | — |
+| `planning/position_tracker.py` | Позиция, состояния | `inducted` |
+| `perception/barcode_decoder.py` | pyzbar | — |
+| `perception/scan_station.py` | SCAN LINE | `scanned`, `no_read` |
+| `wms/routing_table.py` | Правила маршрута | — |
+| `arbitrage/llm_arbitrator.py` | Спорные кейсы | `arbitrator_decision` |
+| `planning/timing_controller.py` | ETA до пушера | — |
+| `planning/command_queue.py` | Очередь ПЛК | — |
+| `main_loop.py` | Связка всего | `scheduled` |
+| `wcs/actuator.py` | Толкатель | `diverted` |
+| `core/events.py` | Запись в JSONL | все |
 
 ---
 
@@ -226,11 +343,15 @@ by_class:
 
 ```yaml
 # config/pipeline.yaml
-scan:
-  barcode_enabled: true   # false — только CV (для отладки)
-
 induction:
-  min_track_length: 5
+  min_track_length: 5      # кадров до inducted
+
+lines:
+  scan_line_ratio: 0.45     # SCAN LINE
+  actuation_line_ratio: 0.72 # ACTUATION LINE
+
+scan:
+  barcode_enabled: true      # pyzbar на SCAN LINE
 ```
 
 ```bash
@@ -238,25 +359,29 @@ pip install pyzbar
 # Linux: sudo apt install libzbar0
 ```
 
----
-
-## 11. Модули в коде
-
-| Этап | Модуль |
-|------|--------|
-| Детекция | `perception/detector.py` |
-| Индукция | `field/induction.py` + `planning/position_tracker.py` |
-| **Штрихкод** | `perception/barcode_decoder.py` |
-| Scan + WMS | `perception/scan_station.py` |
-| Маршруты | `wms/routing_table.py` + `config/routes.yaml` |
-| Арбитр | `arbitrage/llm_arbitrator.py` |
-| Тайминг | `planning/timing_controller.py` + `command_queue.py` |
-| Актуатор | `wcs/actuator.py` |
+Штрихкоды и зоны: `config/routes.yaml`
 
 ---
 
-## 12. Шпаргалка одной строкой
+## 11. Частые вопросы
+
+**Почему в `scheduled` нет bbox и confidence?**  
+Они нужны только в момент `scanned`. ПЛК знает только *когда* и *куда* — не пиксели.
+
+**Читает ли программа events.jsonl?**  
+Нет. Журнал для аудита и демо. Управление — прямые вызовы в `main_loop`.
+
+**Где штрихкод в PyBullet-демо?**  
+На кубах кодов нет → маршрут по классу YOLO. На видео с наклейками pyzbar работает на SCAN LINE.
+
+**Что если сменился track_id?**  
+См. [ERROR_CASES.md](ERROR_CASES.md), сценарий ID-switch.
+
+---
+
+## 12. Одна строка
 
 ```
-YOLO → INDUCTED → [SCAN: pyzbar → WMS(barcode>CV) → арбитр?] → SCANNED → SCHEDULED → DIVERTED
+Кадр → YOLO → inducted → [SCAN: штрихкод → WMS] → scanned → scheduled → diverted
+         ↑ управление кодом          ↑ события пишутся в events.jsonl параллельно
 ```
