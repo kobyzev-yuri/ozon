@@ -24,8 +24,8 @@
     "circle_ratio": 0.6806,
     "category": "sortable",
     "zone": "zone_b",
-    "expected_category": "repack_required",
-    "match": false
+    "expected_category": "sortable",
+    "match": true
   },
   {
     "model_id": "box_300",
@@ -52,8 +52,8 @@
     "circle_ratio": 0.7164,
     "category": "oversize",
     "zone": "zone_c",
-    "expected_category": "sortable",
-    "match": false
+    "expected_category": "oversize",
+    "match": true
   },
   {
     "model_id": "lunchbox",
@@ -80,8 +80,8 @@
     "circle_ratio": 0.8495,
     "category": "repack_required",
     "zone": "zone_d",
-    "expected_category": "sortable",
-    "match": false
+    "expected_category": "repack_required",
+    "match": true
   },
   {
     "model_id": "detergent",
@@ -94,8 +94,8 @@
     "circle_ratio": 0.6358,
     "category": "sortable",
     "zone": "zone_b",
-    "expected_category": "repack_required",
-    "match": false
+    "expected_category": "sortable",
+    "match": true
   },
   {
     "model_id": "pouf",
@@ -108,8 +108,8 @@
     "circle_ratio": 0.9937,
     "category": "oversize",
     "zone": "zone_c",
-    "expected_category": "sortable",
-    "match": false
+    "expected_category": "oversize",
+    "match": true
   },
   {
     "model_id": "pen",
@@ -122,8 +122,8 @@
     "circle_ratio": 0.5232,
     "category": "sortable",
     "zone": "zone_b",
-    "expected_category": "oversize",
-    "match": false
+    "expected_category": "sortable",
+    "match": true
   },
   {
     "model_id": "plate",
@@ -150,7 +150,7 @@
     "circle_ratio": 0.7763,
     "category": "repack_required",
     "zone": "zone_d",
-    "expected_category": "sortable",
-    "match": false
+    "expected_category": "repack_required",
+    "match": true
   }
 ]

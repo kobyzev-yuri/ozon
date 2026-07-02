@@ -108,19 +108,23 @@ class PyBulletConveyor(FrameSource):
         )
 
     def _build_conveyor(self) -> int:
-        cid = p.loadURDF(
-            "cube.urdf",
-            [0, 0, self.conveyor_height / 2],
-            p.getQuaternionFromEuler([0, 0, 0]),
-            globalScaling=1.0,
-        )
-        p.changeVisualShape(
-            cid,
-            -1,
+        half = [
+            self.conveyor_length / 2,
+            self.conveyor_width / 2,
+            0.05,
+        ]
+        col = p.createCollisionShape(p.GEOM_BOX, halfExtents=half)
+        vis = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=half,
             rgbaColor=[0.15, 0.15, 0.15, 1],
-            shapeVisualSizeXYZ=[self.conveyor_length, self.conveyor_width, 0.1],
         )
-        p.changeDynamics(cid, -1, mass=0)
+        cid = p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=col,
+            baseVisualShapeIndex=vis,
+            basePosition=[0, 0, self.conveyor_height / 2],
+        )
         return cid
 
     def _zone_markers(self) -> None:
