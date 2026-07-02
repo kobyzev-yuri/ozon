@@ -106,9 +106,9 @@ class SortMetrics:
         if body_id in self._counted_processed:
             return
         self._counted_processed.add(body_id)
-        if zone == "chute_a":
+        if zone in ("zone_b", "chute_a"):
             self.processed_boxes += 1
-        elif zone == "chute_b":
+        elif zone in ("zone_d", "chute_b"):
             self.processed_spheres += 1
 
     def record_yolo(self, n_detections: int) -> None:
@@ -138,7 +138,7 @@ class SortMetrics:
         diverted = bid in self._diverted_bodies
 
         if item.reason == "fell_floor" and kind == "box" and diverted:
-            self._mark_processed(bid, "chute_a")
+            self._mark_processed(bid, "zone_b")
             return
 
         if item.reason == "end_of_belt":
@@ -155,7 +155,7 @@ class SortMetrics:
                 self.ai_missed += 1
 
     def expected_zone_for_kind(self, kind: str) -> str:
-        mapping = {"box": "chute_a", "sphere": "chute_b"}
+        mapping = {"box": "zone_b", "sphere": "zone_d", "bag": "zone_c"}
         return mapping.get(kind, "zone_reject")
 
     def summary_lines(self) -> list[str]:

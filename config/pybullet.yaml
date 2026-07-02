@@ -34,7 +34,7 @@ spawner:
 # Эмуляция скан-портала (PyBullet: на кубах нет EAN-текстур)
 barcode_sim:
   enabled: true
-  prefixes: ["460", "461"]     # как by_barcode_prefix в routes.yaml
+  prefixes: ["460", "461"]     # опционально: extensions.wms в routes.yaml (disabled)
   misread_probability: 0.08    # доля ошибочного чтения (460↔461)
 
 # Случайные отказы линии (только PyBullet-демо)

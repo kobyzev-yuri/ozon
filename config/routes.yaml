@@ -1,54 +1,130 @@
-# Mock WMS — бизнес-правила маршрутизации (не ML).
-# Полное описание: docs/BUSINESS_RULES.md
+# Task 3 — ПАК предсортировки: категория → зона B/C/D
+# Полное ТЗ: task_3.md · схема: docs/LAYOUT_ABCD.md
 #
-# ЦЕПОЧКА НА ПРОДЕ (один процесс, не два источника):
-#   1. Скан штрихкода (pyzbar / скан-портал)
-#   2. WMS lookup: код → cluster заказа (moscow, siberia, …)
-#   3. Справочник хаба: cluster → физический рукав (chute_*)
+# ЦЕПОЧКА (каноническая):
+#   1. Детекция / локализация товара в накопителе
+#   2. Classifier: габариты → (при успехе) круг в сечении → category
+#   3. by_category → zone_b | zone_c | zone_d
+#   4. Исполнительная часть: захват + перекладка в зону
 #
-# В ЭТОМ YAML:
-#   - by_barcode_prefix — УПРОЩЕНИЕ демо: шаги 2+3 сразу (код → рукав)
-#   - by_cluster       — ПОЛНАЯ таблица шага 3 (когда WMS отдаёт cluster отдельно)
-#   - Обе секции должны быть СОГЛАСОВАНЫ (461… ≈ moscow → chute_b)
-#
-# Кластер НЕ снимается с камеры и НЕ от YOLO — только из WMS после штрихкода.
-# CV-класс (box, sphere) — тип упаковки; fallback маршрута при No Read.
+# by_class — ВРЕМЕННЫЙ demo-fallback (примитивы PyBullet до STL-классификатора).
 
 default_zone: zone_reject
 
-# --- Шаг 2+3 схлопнуты: префикс EAN → рукав (mock WMS lookup по коду) ---
-by_barcode_prefix:
-  "460": chute_a   # эквивалент: cluster siberia → chute_a
-  "461": chute_b   # эквивалент: cluster moscow → chute_b
-  "462": chute_c   # эквивалент: cluster south → chute_c
+# --- Правила классификации (референс для модуля Classifier) ---
+classification:
+  min_dims_mm: [10, 10, 2]
+  max_dims_mm: [450, 320, 320]
+  max_input_dims_mm: [500, 500, 500]
+  circle_in_section_ratio: 0.7   # вписанная / описанная окружность
+  decision_order:
+    - oversize           # приоритет 1: габариты
+    - repack_required    # приоритет 2: круг в сечении
+    - sortable           # иначе
 
-# --- Шаг 3 отдельно: кластер из ответа WMS (после lookup по штрихкоду) ---
-# В рантайме: resolve(cluster=…) — когда подключим mock API WMS (сейчас не вызывается).
-by_cluster:
-  siberia: chute_a
-  moscow: chute_b
-  south: chute_c
+# --- Категории (взаимоисключающие) ---
+categories:
+  sortable:
+    label: "Подходит для сортировки"
+    point: B
+    zone: zone_b
+  oversize:
+    label: "Не подходит для сортировки по габаритам"
+    point: C
+    zone: zone_c
+  repack_required:
+    label: "Не подходит для сортировки без доупаковки"
+    point: D
+    zone: zone_d
 
-# --- FALLBACK: CV-класс → рукав только при отсутствии штрихкода ---
+# --- Основной маршрут: результат классификатора → зона ---
+by_category:
+  sortable: zone_b
+  oversize: zone_c
+  repack_required: zone_d
+
+# --- DEMO: CV-примитив → зона (до Classifier + STL) ---
+# box   ≈ короб в допустимых габаритах → B
+# sphere ≈ цилиндр / круг в сечении → D
+# bag   ≈ нестандартная форма / негабарит в демо → C
 by_class:
-  box: chute_a
-  sphere: chute_b
-  bag: chute_c
+  box: zone_b
+  sphere: zone_d
+  bag: zone_c
 
+# --- Зоны исполнительной части ---
 zones:
-  chute_a:
-    label: "Рукав A — кластер Сибирь (направление, не тип товара)"
+  zone_b:
+    label: "Точка B — основной сортировщик (sortable)"
+    point: B
+    actuator: cross-belt
+    direction: straight
+  zone_c:
+    label: "Точка C — негабарит (oversize)"
+    point: C
     actuator: cross-belt
     direction: left
-  chute_b:
-    label: "Рукав B — кластер Москва (направление, не тип товара)"
+  zone_d:
+    label: "Точка D — доупаковка (repack_required)"
+    point: D
     actuator: cross-belt
-    direction: right
-  chute_c:
-    label: "Рукав C — кластер Юг"
-    actuator: pop-up
     direction: right
   zone_reject:
-    label: "No Read / ручная выбраковка"
+    label: "Неоднозначно / no-read / ручной разбор"
+    point: null
     actuator: cross-belt
     direction: left
+
+# --- Тестовые объекты (ожидаемая категория по правилам ТЗ, для валидации) ---
+# Точные габариты — после импорта STL и замера AABB.
+test_objects:
+  bottle:
+    stl: "Stl/Бутылка.stl"
+    expected_category: repack_required
+    note: "цилиндрическое сечение"
+  cylinder:
+    stl: "Stl/Цилиндр.stl"
+    expected_category: repack_required
+  box_300:
+    stl: "Stl/Короб 300х200х200.stl"
+    expected_category: sortable
+  box_400:
+    stl: "Stl/Короб 400х400х300.stl"
+    expected_category: sortable
+  lunchbox:
+    stl: "Stl/ЛанчБокс.stl"
+    expected_category: sortable
+  bag:
+    stl: "Stl/Мешок.stl"
+    expected_category: sortable
+    note: "уточнить после замера AABB"
+  detergent:
+    stl: "Stl/Моющее средство.STL"
+    expected_category: repack_required
+  pouf:
+    stl: "Stl/Пуфик.stl"
+    expected_category: sortable
+    note: "мягкий объект — пограничный кейс"
+  pen:
+    stl: "Stl/Ручка.stl"
+    expected_category: oversize
+    note: "вероятно < 10×10×2 мм — уточнить масштаб"
+  plate:
+    stl: "Stl/Тарелка.stl"
+    expected_category: repack_required
+    note: "круглое сечение"
+  helmet:
+    stl: "Stl/Шлем.stl"
+    expected_category: sortable
+    note: "уточнить габариты и сечение"
+
+# --- Опционально: WMS / штрихкод (НЕ ядро задачи 3) ---
+extensions:
+  wms:
+    enabled: false
+    by_barcode_prefix:
+      "460": zone_b
+      "461": zone_c
+    by_cluster:
+      demo_a: zone_b
+      demo_b: zone_c
