@@ -199,6 +199,10 @@ def run_pybullet_demo(
                 lambda cx, cy: env.belt_position_for_bbox_center(cx, cy),
                 cv_frame_idx,
             )
+            for snap in snapshots:
+                cat = env.spawner.category_for(snap.track_id)
+                if cat:
+                    snap.metadata["category"] = cat
             snapshots_by_id = {s.track_id: s for s in snapshots}
 
             for snap, route in scan.process(frame, snapshots, cv_frame_idx):
@@ -225,7 +229,9 @@ def run_pybullet_demo(
 
             for cmd in queue.pop_due(cv_frame_idx):
                 snap = snapshots_by_id.get(cmd.track_id)
-                expected = snap.target_zone if snap and snap.target_zone else None
+                expected = env.spawner.expected_zone_for(cmd.track_id)
+                if expected is None and snap and snap.target_zone:
+                    expected = snap.target_zone
                 outcome = actuator.execute(cmd, cv_frame_idx, snapshots_by_id)
                 if not outcome.applies_force:
                     metrics.record_actuator_miss()

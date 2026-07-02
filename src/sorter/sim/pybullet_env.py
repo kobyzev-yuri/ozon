@@ -9,7 +9,9 @@ import yaml
 
 from sorter.field.frame_source import FrameSource
 from sorter.sim.fault_simulator import FaultSimulator
+from sorter.sim.mesh_loader import load_stl_body
 from sorter.sim.spawner import AutomaticSpawner, SpawnedItem
+from sorter.sim.stl_catalog import StlCatalog
 
 try:
     import pybullet as p
@@ -57,6 +59,12 @@ class PyBulletConveyor(FrameSource):
         self._step = 0
         self._diverted: set[int] = set()
         self.fault_sim = FaultSimulator(self.cfg.get("fault_sim", {}))
+        self.stl_catalog: StlCatalog | None = None
+        sp = self.cfg["spawner"]
+        if sp.get("mode", "primitive") == "stl":
+            self.stl_catalog = StlCatalog(
+                assets_root=sp.get("assets_root", "assets"),
+            )
 
         mode = p.GUI if self.gui else p.DIRECT
         self._client = p.connect(mode)
@@ -73,6 +81,16 @@ class PyBulletConveyor(FrameSource):
         barcode_prefixes = (
             list(bs["prefixes"]) if bs.get("enabled", False) else None
         )
+
+        def category_lookup(kind: str) -> tuple[str, str] | None:
+            if self.stl_catalog is None:
+                return None
+            spec = self.stl_catalog.get(kind)
+            if spec is None:
+                return None
+            return spec.category, spec.zone
+
+        kinds = list(sp.get("kinds", ["box", "sphere"]))
         self.spawner = AutomaticSpawner(
             spawn_fn=self._spawn_body,
             remove_fn=self._remove_body,
@@ -81,11 +99,12 @@ class PyBulletConveyor(FrameSource):
             spawn_z=float(sp.get("spawn_z", 0.4)),
             interval_steps=int(sp["interval_steps"]),
             y_offset_range=tuple(sp["y_offset_range"]),
-            kinds=list(sp.get("kinds", ["box", "sphere"])),
+            kinds=kinds,
             cleanup_x=float(lines["cleanup_x"]),
             cleanup_z=float(lines["cleanup_z"]),
             barcode_prefixes=barcode_prefixes,
             fault_sim=self.fault_sim if self.fault_sim.enabled else None,
+            category_lookup=category_lookup if self.stl_catalog else None,
         )
 
     def _build_conveyor(self) -> int:
@@ -114,7 +133,34 @@ class PyBulletConveyor(FrameSource):
             p.changeVisualShape(mid, -1, rgbaColor=color)
             p.changeDynamics(mid, -1, mass=0)
 
+        layout = self.cfg.get("layout", {})
+        for zone_key, label in [
+            ("zone_b", "B"),
+            ("zone_c", "C"),
+            ("zone_d", "D"),
+        ]:
+            spec = layout.get(zone_key)
+            if not spec:
+                continue
+            pos = [float(spec["x_m"]), float(spec["y_m"]), self.conveyor_height + 0.08]
+            mid = p.loadURDF("cube.urdf", pos, globalScaling=0.08)
+            p.changeVisualShape(mid, -1, rgbaColor=spec.get("color", [0.5, 0.5, 0.5, 0.6]))
+            p.changeDynamics(mid, -1, mass=0)
+
     def _spawn_body(self, kind: str, pos: list[float], step: int) -> int:
+        sp = self.cfg["spawner"]
+        if self.stl_catalog is not None:
+            spec = self.stl_catalog.get(kind)
+            if spec is not None and spec.stl_path.exists():
+                scale = float(sp.get("stl_scale", 0.001))
+                mass = float(sp.get("mass", 0.3))
+                return load_stl_body(
+                    spec.stl_path,
+                    pos,
+                    scale=scale,
+                    mass=mass,
+                )
+
         if kind == "sphere":
             urdf = "sphere2.urdf"
             scale = float(self.cfg["spawner"].get("scale_sphere", 0.25))
@@ -216,6 +262,9 @@ class PyBulletConveyor(FrameSource):
         """track_id = PyBullet body_id. Cross-belt импульс по Y."""
         if track_id in self._diverted or force_scale <= 0:
             return False
+        if direction in (None, "straight", "null"):
+            self._diverted.add(track_id)
+            return True
         force_y = float(self.cfg["actuator"].get("force_y", 12.0)) * force_scale
         if direction == "left":
             force_y = abs(force_y)

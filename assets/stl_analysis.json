@@ -1,0 +1,156 @@
+[
+  {
+    "model_id": "bottle",
+    "stl": "Stl/Бутылка.stl",
+    "dims_mm": [
+      304.99993896484375,
+      91.31764221191406,
+      91.2353630065918
+    ],
+    "circle_ratio": 0.9813,
+    "category": "repack_required",
+    "zone": "zone_d",
+    "expected_category": "repack_required",
+    "match": true
+  },
+  {
+    "model_id": "cylinder",
+    "stl": "Stl/Цилиндр.stl",
+    "dims_mm": [
+      435.0,
+      50.0,
+      43.0
+    ],
+    "circle_ratio": 0.6806,
+    "category": "sortable",
+    "zone": "zone_b",
+    "expected_category": "repack_required",
+    "match": false
+  },
+  {
+    "model_id": "box_300",
+    "stl": "Stl/Короб 300х200х200.stl",
+    "dims_mm": [
+      301.0,
+      200.5,
+      200.0
+    ],
+    "circle_ratio": 0.5705,
+    "category": "sortable",
+    "zone": "zone_b",
+    "expected_category": "sortable",
+    "match": true
+  },
+  {
+    "model_id": "box_400",
+    "stl": "Stl/Короб 400х400х300.stl",
+    "dims_mm": [
+      401.0,
+      400.0,
+      300.5
+    ],
+    "circle_ratio": 0.7164,
+    "category": "oversize",
+    "zone": "zone_c",
+    "expected_category": "sortable",
+    "match": false
+  },
+  {
+    "model_id": "lunchbox",
+    "stl": "Stl/ЛанчБокс.stl",
+    "dims_mm": [
+      200.99523162841797,
+      152.40040588378906,
+      62.29999923706055
+    ],
+    "circle_ratio": 0.629,
+    "category": "sortable",
+    "zone": "zone_b",
+    "expected_category": "sortable",
+    "match": true
+  },
+  {
+    "model_id": "bag",
+    "stl": "Stl/Мешок.stl",
+    "dims_mm": [
+      199.332591,
+      182.79874,
+      174.84598
+    ],
+    "circle_ratio": 0.8495,
+    "category": "repack_required",
+    "zone": "zone_d",
+    "expected_category": "sortable",
+    "match": false
+  },
+  {
+    "model_id": "detergent",
+    "stl": "Stl/Моющее средство.STL",
+    "dims_mm": [
+      278.1640464067459,
+      259.02900886535645,
+      179.23226296901703
+    ],
+    "circle_ratio": 0.6358,
+    "category": "sortable",
+    "zone": "zone_b",
+    "expected_category": "repack_required",
+    "match": false
+  },
+  {
+    "model_id": "pouf",
+    "stl": "Stl/Пуфик.stl",
+    "dims_mm": [
+      488.90460205078125,
+      488.9045715332031,
+      264.0
+    ],
+    "circle_ratio": 0.9937,
+    "category": "oversize",
+    "zone": "zone_c",
+    "expected_category": "sortable",
+    "match": false
+  },
+  {
+    "model_id": "pen",
+    "stl": "Stl/Ручка.stl",
+    "dims_mm": [
+      148.4597053527832,
+      13.153282165527344,
+      8.998844146728516
+    ],
+    "circle_ratio": 0.5232,
+    "category": "sortable",
+    "zone": "zone_b",
+    "expected_category": "oversize",
+    "match": false
+  },
+  {
+    "model_id": "plate",
+    "stl": "Stl/Тарелка.stl",
+    "dims_mm": [
+      209.510986328125,
+      209.43675231933594,
+      26.526713371276855
+    ],
+    "circle_ratio": 0.9918,
+    "category": "repack_required",
+    "zone": "zone_d",
+    "expected_category": "repack_required",
+    "match": true
+  },
+  {
+    "model_id": "helmet",
+    "stl": "Stl/Шлем.stl",
+    "dims_mm": [
+      356.2692656517029,
+      297.07270172191784,
+      279.5532531738281
+    ],
+    "circle_ratio": 0.7763,
+    "category": "repack_required",
+    "zone": "zone_d",
+    "expected_category": "sortable",
+    "match": false
+  }
+]

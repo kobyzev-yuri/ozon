@@ -58,7 +58,7 @@ zones:
     label: "Точка B — основной сортировщик (sortable)"
     point: B
     actuator: cross-belt
-    direction: straight
+    direction: null
   zone_c:
     label: "Точка C — негабарит (oversize)"
     point: C
@@ -75,48 +75,52 @@ zones:
     actuator: cross-belt
     direction: left
 
-# --- Тестовые объекты (ожидаемая категория по правилам ТЗ, для валидации) ---
-# Точные габариты — после импорта STL и замера AABB.
+# --- Тестовые объекты (категории по scripts/analyze_stl.py → docs/STL_ANALYSIS.md) ---
 test_objects:
   bottle:
     stl: "Stl/Бутылка.stl"
     expected_category: repack_required
-    note: "цилиндрическое сечение"
+    dims_mm: [305, 91, 91]
   cylinder:
     stl: "Stl/Цилиндр.stl"
-    expected_category: repack_required
+    expected_category: sortable
+    dims_mm: [435, 50, 43]
   box_300:
     stl: "Stl/Короб 300х200х200.stl"
     expected_category: sortable
+    dims_mm: [301, 201, 200]
   box_400:
     stl: "Stl/Короб 400х400х300.stl"
-    expected_category: sortable
+    expected_category: oversize
+    dims_mm: [401, 400, 301]
   lunchbox:
     stl: "Stl/ЛанчБокс.stl"
     expected_category: sortable
+    dims_mm: [201, 152, 62]
   bag:
     stl: "Stl/Мешок.stl"
-    expected_category: sortable
-    note: "уточнить после замера AABB"
+    expected_category: repack_required
+    dims_mm: [199, 183, 175]
   detergent:
     stl: "Stl/Моющее средство.STL"
-    expected_category: repack_required
+    expected_category: sortable
+    dims_mm: [278, 259, 179]
   pouf:
     stl: "Stl/Пуфик.stl"
-    expected_category: sortable
-    note: "мягкий объект — пограничный кейс"
+    expected_category: oversize
+    dims_mm: [489, 489, 264]
   pen:
     stl: "Stl/Ручка.stl"
-    expected_category: oversize
-    note: "вероятно < 10×10×2 мм — уточнить масштаб"
+    expected_category: sortable
+    dims_mm: [148, 13, 9]
   plate:
     stl: "Stl/Тарелка.stl"
     expected_category: repack_required
-    note: "круглое сечение"
+    dims_mm: [210, 209, 27]
   helmet:
     stl: "Stl/Шлем.stl"
-    expected_category: sortable
-    note: "уточнить габариты и сечение"
+    expected_category: repack_required
+    dims_mm: [356, 297, 280]
 
 # --- Опционально: WMS / штрихкод (НЕ ядро задачи 3) ---
 extensions:

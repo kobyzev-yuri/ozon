@@ -71,10 +71,13 @@ FrameSource → детекция/локализация → Classifier (габа
 
 1. ~~Зафиксировать ТЗ в `task_3.md`~~ ✓  
 2. ~~Переложить `routes.yaml` на B/C/D~~ ✓  
-3. ~~План импорта STL~~ ✓ → реализация по [STL_IMPORT_PLAN.md](docs/STL_IMPORT_PLAN.md)  
-4. Модуль `Classifier`: габариты + круг в сечении  
-5. PyBullet: накопитель, 3 отвода, STL-меши вместо box/sphere  
-6. Обновить DEFENSE / PRESENTATION под ПАК (не WMS-нарратив)
+3. ~~План импорта STL~~ ✓  
+4. ~~Распаковать STL в `assets/Stl/`~~ ✓  
+5. ~~`scripts/analyze_stl.py` + `docs/STL_ANALYSIS.md`~~ ✓  
+6. ~~`PacClassifier`, `mesh_loader`, PyBullet `mode: stl`~~ ✓  
+7. Обновить DEFENSE / PRESENTATION под ПАК  
+8. Накопитель + перекладка B/C/D в симуляции  
+9. Видеодемонстрация + отчёт
 
 ## Ссылки в репозитории
 
@@ -86,3 +89,5 @@ FrameSource → детекция/локализация → Classifier (габа
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Техническая архитектура |
 | [DEFENSE.md](DEFENSE.md) | Питч и Q&A |
 | [docs/BUSINESS_RULES.md](docs/BUSINESS_RULES.md) | *Устаревающий* WMS-контекст; ядро — категории B/C/D |
+| [docs/QUESTIONS_FOR_ORGANIZERS.md](docs/QUESTIONS_FOR_ORGANIZERS.md) | **Вопросы организаторам** (живой список) |
+| [docs/STL_ANALYSIS.md](docs/STL_ANALYSIS.md) | Результаты `analyze_stl.py` |

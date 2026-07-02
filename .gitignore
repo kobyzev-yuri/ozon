@@ -8,3 +8,5 @@ models/*.pt
 yolo*.pt
 !models/.gitkeep
 !logs/.gitkeep
+!assets/.gitkeep
+# STL meshes tracked in git (~16 MB total)

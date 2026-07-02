@@ -39,7 +39,10 @@ class ScanStation:
         return frame_width * self.scan_line_ratio
 
     def _resolve_route(self, snap: TrackSnapshot) -> RouteDecision:
-        """WMS: barcode (→ cluster на проде) → cluster → CV → reject."""
+        """category (Classifier) → CV fallback → reject."""
+        if snap.metadata.get("category"):
+            return self.routing.resolve(category=snap.metadata["category"])
+
         cv_route = self.routing.resolve(
             class_name=snap.class_name,
             confidence=snap.confidence,

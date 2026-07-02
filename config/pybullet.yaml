@@ -1,4 +1,4 @@
-# PyBullet Digital Twin — параметры сцены
+# PyBullet Digital Twin — ПАК предсортировки (точка A → B/C/D)
 
 physics_hz: 240
 cv_interval_steps: 16          # ~15 FPS при 240 Гц
@@ -17,40 +17,48 @@ camera:
   fov: 55
 
 lines_world:
-  scan_x: 0.0                  # камера / скан-портал
-  actuation_x: 1.2             # cross-belt пушер
-  spawn_x: -2.5
-  cleanup_x: 3.5               # конец ленты
-  cleanup_z: 0.05              # упал с ленты
+  scan_x: 0.0                  # зона классификации / камера
+  actuation_x: 1.2             # исполнительная линия (cross-belt)
+  spawn_x: -2.5                # точка A — подача на ленту
+  accumulator_x: 2.0           # накопитель (конец ленты, целевое)
+  cleanup_x: 3.5
+  cleanup_z: 0.05
+
+layout:
+  zone_b: { x_m: 2.5, y_m: 0.0, color: [0.2, 0.8, 0.2, 0.6] }
+  zone_c: { x_m: 1.0, y_m: -0.9, color: [0.9, 0.2, 0.2, 0.6] }
+  zone_d: { x_m: 1.0, y_m: 0.9, color: [0.9, 0.8, 0.1, 0.6] }
 
 spawner:
-  interval_steps: 500          # ~2 с при 240 Гц
-  spawn_z: 0.4
+  mode: stl                    # stl | primitive
+  assets_root: assets
+  stl_scale: 0.001               # STL в мм → метры PyBullet
+  interval_steps: 800
+  spawn_z: 0.35
   y_offset_range: [-0.2, 0.2]
+  mass: 0.3
+  # лёгкие модели для демо; полный список — config/routes.yaml test_objects
+  kinds: [cylinder, box_300, lunchbox, bottle, plate, box_400]
+  # primitive fallback:
   scale_box: 0.2
   scale_sphere: 0.25
-  kinds: [box, sphere]
 
-# Эмуляция скан-портала (PyBullet: на кубах нет EAN-текстур)
 barcode_sim:
-  enabled: true
-  prefixes: ["460", "461"]     # опционально: extensions.wms в routes.yaml (disabled)
-  misread_probability: 0.08    # доля ошибочного чтения (460↔461)
+  enabled: false               # не ядро задачи 3; WMS в extensions.wms
 
-# Случайные отказы линии (только PyBullet-демо)
 fault_sim:
   enabled: true
   belt_slip:
-    assign_probability: 0.25   # доля посылок с проскальзыванием
+    assign_probability: 0.25
     speed_factor_range: [0.82, 1.12]
   actuator:
-    miss_probability: 0.06     # пушер не сработал
+    miss_probability: 0.06
     weak_push_probability: 0.05
-    weak_force_factor: 0.35    # слабый толчок → промах мимо рукава
+    weak_force_factor: 0.35
     overshoot_probability: 0.04
-    overshoot_force_factor: 1.75  # перелёт → сброс с ленты
+    overshoot_force_factor: 1.75
 
 actuator:
-  force_y: 12.0                # импульс cross-belt
+  force_y: 12.0
 
 gui: true

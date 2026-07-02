@@ -11,25 +11,20 @@
 
 ## Этап 0 — Подготовка ассетов
 
-```bash
-cd /home/cnn/ozon
-mkdir -p assets/stl
-unzip -o docs/doc-1782987733.zip -d assets/
-# итог: assets/Stl/*.stl
-```
-
-| Шаг | Действие |
-|-----|----------|
-| 0.1 | Распаковать STL в `assets/Stl/` (не коммитить бинарники >50MB без LFS — см. `.gitignore`) |
-| 0.2 | Переименовать в ASCII alias для кода: `bottle.stl`, `cylinder.stl`, `box_300.stl`, … |
-| 0.3 | Для каждого файла: замер **AABB** (мм) → сверка с `classification` в `routes.yaml` |
-| 0.4 | Обновить `test_objects.*.expected_category` при расхождении |
+| Шаг | Статус |
+|-----|--------|
+| 0.1 Распаковать STL в `assets/Stl/` | ✓ |
+| 0.2 Alias / каталог `test_objects` в routes.yaml | ✓ |
+| 0.3 Замер AABB → `docs/STL_ANALYSIS.md` | ✓ |
+| 0.4 Обновить `expected_category` в routes.yaml | ✓ |
 
 **Зависимости:** `trimesh` или `numpy-stl` для офлайн-анализа; PyBullet `createCollisionShape` / `createVisualShape` из mesh.
 
 ---
 
 ## Этап 1 — Офлайн-анализ геометрии
+
+**Статус:** ✓ `scripts/analyze_stl.py` → `assets/stl_analysis.json`, `docs/STL_ANALYSIS.md`
 
 Скрипт `scripts/analyze_stl.py` (создать):
 
@@ -43,6 +38,8 @@ unzip -o docs/doc-1782987733.zip -d assets/
 ---
 
 ## Этап 2 — Загрузчик mesh в PyBullet
+
+**Статус:** ✓ `src/sorter/sim/mesh_loader.py`, интеграция в `pybullet_env.py`
 
 Файл: `src/sorter/sim/mesh_loader.py`
 

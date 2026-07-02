@@ -155,7 +155,21 @@ class SortMetrics:
                 self.ai_missed += 1
 
     def expected_zone_for_kind(self, kind: str) -> str:
-        mapping = {"box": "zone_b", "sphere": "zone_d", "bag": "zone_c"}
+        mapping = {
+            "box": "zone_b",
+            "sphere": "zone_d",
+            "cylinder": "zone_b",
+            "box_300": "zone_b",
+            "box_400": "zone_c",
+            "lunchbox": "zone_b",
+            "bottle": "zone_d",
+            "plate": "zone_d",
+            "bag": "zone_d",
+            "pouf": "zone_c",
+            "helmet": "zone_d",
+            "detergent": "zone_b",
+            "pen": "zone_b",
+        }
         return mapping.get(kind, "zone_reject")
 
     def summary_lines(self) -> list[str]:

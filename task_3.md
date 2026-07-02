@@ -107,7 +107,8 @@
 | Тарелка | `Stl/Тарелка.stl` |
 | Шлем | `Stl/Шлем.stl` |
 
-План интеграции в симулятор: [docs/STL_IMPORT_PLAN.md](docs/STL_IMPORT_PLAN.md).
+План интеграции в симулятор: [docs/STL_IMPORT_PLAN.md](docs/STL_IMPORT_PLAN.md).  
+Распакованные модели: `assets/Stl/`. Анализ: [docs/STL_ANALYSIS.md](docs/STL_ANALYSIS.md).
 
 ---
 

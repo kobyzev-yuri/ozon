@@ -16,6 +16,8 @@ class SpawnedItem:
     spawned_step: int
     barcode: str | None = None
     belt_slip_factor: float = 1.0
+    category: str | None = None
+    expected_zone: str | None = None
 
 
 class AutomaticSpawner:
@@ -38,6 +40,7 @@ class AutomaticSpawner:
         cleanup_z: float = 0.05,
         barcode_prefixes: list[str] | None = None,
         fault_sim: FaultSimulator | None = None,
+        category_lookup: Callable[[str], tuple[str, str] | None] | None = None,
     ) -> None:
         self._spawn_fn = spawn_fn
         self._remove_fn = remove_fn
@@ -51,6 +54,7 @@ class AutomaticSpawner:
         self.cleanup_z = cleanup_z
         self.barcode_prefixes = barcode_prefixes or ["460", "461"]
         self._fault_sim = fault_sim
+        self._category_lookup = category_lookup
         self.active: list[SpawnedItem] = []
         self.total_spawned = 0
         self.total_removed = 0
@@ -71,12 +75,19 @@ class AutomaticSpawner:
                 if self._fault_sim is not None
                 else 1.0
             )
+            category, zone = None, None
+            if self._category_lookup is not None:
+                looked = self._category_lookup(kind)
+                if looked:
+                    category, zone = looked
             item = SpawnedItem(
                 body_id=body_id,
                 kind=kind,
                 spawned_step=step,
                 barcode=barcode,
                 belt_slip_factor=slip,
+                category=category,
+                expected_zone=zone,
             )
             self.active.append(item)
             self.total_spawned += 1
@@ -141,6 +152,18 @@ class AutomaticSpawner:
             if item.body_id == body_id:
                 return item.belt_slip_factor
         return 1.0
+
+    def category_for(self, body_id: int) -> str | None:
+        for item in self.active:
+            if item.body_id == body_id:
+                return item.category
+        return None
+
+    def expected_zone_for(self, body_id: int) -> str | None:
+        for item in self.active:
+            if item.body_id == body_id:
+                return item.expected_zone
+        return None
 
     def kind_for_removed(self, body_id: int, removed_batch: list[RemovedItem]) -> str | None:
         for r in removed_batch:
